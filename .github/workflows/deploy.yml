@@ -1,0 +1,21 @@
+name: Auto-Deploy to Coolify
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  trigger-coolify-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Apun Ka Download Webhook on Coolify
+        run: |
+          echo "Triggering auto-deploy for commit ${{ github.sha }}..."
+          curl -sS -X POST "http://iruropwov7dpshz81pxprsxf.140.238.160.99.sslip.io/api/webhook/github" \
+            -H "Content-Type: application/json" \
+            -d "{\"commit_sha\": \"${{ github.sha }}\", \"repo\": \"${{ github.repository }}\"}" || true
+          curl -sS -X POST "https://dl.tmadhu.me/api/webhook/github" \
+            -H "Content-Type: application/json" \
+            -d "{\"commit_sha\": \"${{ github.sha }}\", \"repo\": \"${{ github.repository }}\"}" || true

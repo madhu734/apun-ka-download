@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Apun Ka Download — Fast Media Extractor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="ambient-bg"></div>
+
+  <main class="shell">
+    <!-- Top Brand Header -->
+    <header class="brand-header">
+      <div class="brand-badge">
+        <span class="pulse-dot"></span>
+        <span>DIRECT STREAM ENGINE</span>
+      </div>
+      <h1 class="brand-title">Apun Ka Download</h1>
+      <p class="brand-subtitle">Clean, high-speed video &amp; studio audio extraction for YouTube, YT Music, Instagram, Facebook &amp; TikTok.</p>
+    </header>
+
+    <!-- Main Control Card -->
+    <section class="control-card">
+      <!-- Pre-Selection Mode Toggle: Video vs Audio Only -->
+      <div class="mode-bar">
+        <span class="mode-caption">Target Mode</span>
+        <div class="mode-switch" role="tablist">
+          <button type="button" id="modeVideoBtn" class="mode-btn active" data-mode="video">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="4" width="20" height="16" rx="3"></rect>
+              <polygon points="10 9 15 12 10 15 10 9" fill="currentColor"></polygon>
+            </svg>
+            <span>Video</span>
+          </button>
+          <button type="button" id="modeAudioBtn" class="mode-btn" data-mode="audio">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18V5l12-2v13"></path>
+              <circle cx="6" cy="18" r="3"></circle>
+              <circle cx="18" cy="16" r="3"></circle>
+            </svg>
+            <span>Audio Only</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- URL Input + Auto-Paste Icon + Fetch Button -->
+      <form id="fetchForm" class="input-group" autocomplete="off">
+        <div class="input-wrapper">
+          <input
+            type="url"
+            id="urlInput"
+            class="url-input"
+            placeholder="Paste YouTube, YT Music, Instagram, Facebook, or TikTok link..."
+            required
+          />
+          <button
+            type="button"
+            id="pasteBtn"
+            class="paste-icon-btn"
+            title="Paste link from clipboard & auto-fetch"
+            aria-label="Paste from clipboard"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="2" width="6" height="4" rx="1"></rect>
+              <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"></path>
+            </svg>
+            <span class="paste-label">Paste</span>
+          </button>
+        </div>
+        <button type="submit" id="fetchBtn" class="fetch-btn">
+          <span>Fetch</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M5 12h14"></path>
+            <path d="m12 5 7 7-7 7"></path>
+          </svg>
+        </button>
+      </form>
+
+      <!-- Live Auto-Detected Platform Strip -->
+      <div class="platform-strip">
+        <div id="detectedBadge" class="detected-pill neutral">
+          <span id="detectedIcon" class="platform-icon"></span>
+          <span id="detectedText">Supported: YouTube • YT Music • Facebook • Instagram • TikTok</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Unique Kinetic "wait, processing" Sync Panel -->
+    <section id="processingPanel" class="processing-card hidden" aria-live="polite">
+      <div class="kinetic-header">
+        <span class="code-bracket">[</span>
+        <div id="kineticText" class="kinetic-word" aria-label="wait, processing"></div>
+        <span class="code-bracket">]</span>
+      </div>
+      <div class="sync-progress-track">
+        <div id="syncProgressBar" class="sync-progress-bar"></div>
+      </div>
+      <div class="sync-terminal">
+        <span class="terminal-tag">SYNC //</span>
+        <span id="syncStageText" class="terminal-message">Connecting to media extractor...</span>
+      </div>
+    </section>
+
+    <!-- Alert / Error Box (e.g., Facebook Private Group Warning) -->
+    <section id="errorPanel" class="error-card hidden" role="alert">
+      <div class="error-icon">!</div>
+      <div class="error-content">
+        <h3 id="errorTitle">Unable to Process Link</h3>
+        <p id="errorMessage"></p>
+      </div>
+    </section>
+
+    <!-- Result & Quality Selection Stage -->
+    <section id="resultPanel" class="result-card hidden">
+      <div id="overrideNotice" class="override-banner hidden">
+        <span>🎵 YouTube Music link detected — automatically switched to Studio Audio mode.</span>
+      </div>
+
+      <div class="result-grid">
+        <!-- Media Preview Column -->
+        <div class="media-preview">
+          <div class="thumb-wrap">
+            <img id="mediaThumb" src="" alt="Media thumbnail" referrerpolicy="no-referrer" />
+            <span id="mediaDuration" class="duration-chip">0:00</span>
+          </div>
+          <div class="media-meta">
+            <div id="resultPlatformBadge" class="result-platform-tag">PLATFORM</div>
+            <h2 id="mediaTitle" class="media-title">Media Title</h2>
+            <p id="mediaUploader" class="media-uploader">Channel Name</p>
+          </div>
+        </div>
+
+        <!-- Dynamic Format Options Column -->
+        <div class="options-column">
+          <div class="options-header">
+            <span id="optionsHeading">Select Quality</span>
+            <span class="options-hint">Click to process &amp; download</span>
+          </div>
+          <div id="optionsList" class="options-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="app-footer">
+      <span>Apun Ka Download • Zero-Ads Stream Engine</span>
+      <a href="/admin" class="admin-link">Cookies / Admin</a>
+    </footer>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

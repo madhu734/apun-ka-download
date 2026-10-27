@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Cookie Manager — Apun Ka Download</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .admin-box { display: flex; flex-direction: column; gap: 16px; }
+    .admin-textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      background: #f8fafc;
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 12px;
+      resize: vertical;
+    }
+    .pin-input {
+      width: 100%;
+      height: 46px;
+      padding: 0 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.92rem;
+      background: #f8fafc;
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 10px;
+    }
+    .admin-actions { display: flex; gap: 12px; align-items: center; }
+    .status-banner {
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: #f1f5f9;
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient-bg"></div>
+  <main class="shell">
+    <header class="brand-header">
+      <div class="brand-badge">
+        <span class="pulse-dot"></span>
+        <span>ADMIN CONSOLE</span>
+      </div>
+      <h1 class="brand-title">Cookies.txt Manager</h1>
+      <p class="brand-subtitle">Upload Netscape format cookies.txt for authenticated age-restricted or premium stream extraction.</p>
+    </header>
+
+    <section class="control-card admin-box">
+      <div id="cookieStatus" class="status-banner">Checking current cookies.txt status...</div>
+      <input type="password" id="pinInput" class="pin-input" placeholder="Enter Admin PIN" required />
+      <textarea id="cookieInput" class="admin-textarea" placeholder="# Netscape HTTP Cookie File&#10;Paste your cookies.txt content here (leave blank to clear)..."></textarea>
+      <div class="admin-actions">
+        <button type="button" id="saveCookieBtn" class="fetch-btn">Save Cookies.txt</button>
+        <a href="/" class="admin-link">← Back to Downloader</a>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById("cookieStatus");
+    const pinEl = document.getElementById("pinInput");
+    const cookieEl = document.getElementById("cookieInput");
+    const saveBtn = document.getElementById("saveCookieBtn");
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/api/admin/cookies-status");
+        const data = await res.json();
+        statusEl.textContent = data.active
+          ? `✅ Active cookies.txt loaded (${data.size_bytes} bytes)`
+          : "ℹ️ No cookies.txt currently active (using public extraction)";
+      } catch (e) {
+        statusEl.textContent = "Unable to check status.";
+      }
+    }
+    refreshStatus();
+
+    saveBtn.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/admin/cookies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pin: pinEl.value,
+            cookies_content: cookieEl.value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to save");
+        statusEl.textContent = data.active
+          ? `✅ Saved! cookies.txt is now active (${data.size_bytes} bytes)`
+          : "🗑️ Cleared cookies.txt.";
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  </script>
+</body>
+</html>
