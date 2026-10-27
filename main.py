@@ -140,6 +140,16 @@ def snap_resolution(res: int) -> int:
 def base_ydl_opts(workdir: Path) -> dict[str, Any]:
     """Common yt-dlp options. A private copy of the cookie file is used so
     yt-dlp never needs write access to the (possibly read-only) mount."""
+    has_cookies = False
+    try:
+        has_cookies = COOKIE_FILE.is_file() and COOKIE_FILE.stat().st_size > 0
+    except OSError:
+        pass
+
+    # When cookies are present, use web clients that support cookies (web, default).
+    # When no cookies are present, use visionos to bypass datacenter IP bot-check.
+    yt_clients = ["default", "web", "web_embedded"] if has_cookies else ["visionos"]
+
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -155,19 +165,19 @@ def base_ydl_opts(workdir: Path) -> dict[str, Any]:
         "color": "no_color",
         "extractor_args": {
             "youtube": {
-                "player_client": ["visionos"]
+                "player_client": yt_clients
             }
         },
         "js_runtimes": {"node": {}},
         "remote_components": ["ejs:github"],
     }
-    try:
-        if COOKIE_FILE.is_file() and COOKIE_FILE.stat().st_size > 0:
+    if has_cookies:
+        try:
             copy = workdir / "cookies.txt"
             shutil.copyfile(COOKIE_FILE, copy)
             opts["cookiefile"] = str(copy)
-    except OSError as exc:  # unreadable mount must never break downloads
-        log.warning("Cookie file present but unreadable: %s", exc)
+        except OSError as exc:  # unreadable mount must never break downloads
+            log.warning("Cookie file present but unreadable: %s", exc)
     return opts
 
 
@@ -373,10 +383,15 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
         except Exception as exc:
             msg = clean_error(exc)
             low = msg.lower()
-            if platform in ("youtube", "ytmusic") and ("bot" in low or "sign in" in low or "login" in low or "drm" in low):
-                log.info("Primary extraction hit bot check. Retrying with visionos player_client...")
-                opts["extractor_args"]["youtube"]["player_client"] = ["visionos"]
-                with yt_dlp.YoutubeDL(opts) as ydl:
+            if platform in ("youtube", "ytmusic") and (
+                "bot" in low or "sign in" in low or "login" in low or "drm" in low or "format is not available" in low
+            ):
+                current_clients = opts.get("extractor_args", {}).get("youtube", {}).get("player_client", [])
+                fallback_clients = ["visionos"] if ("web" in current_clients or "default" in current_clients) else ["default", "web"]
+                log.info("Primary extraction hit %s. Retrying with %s...", msg[:80], fallback_clients)
+                opts_fb = base_ydl_opts(tmp)
+                opts_fb["extractor_args"]["youtube"]["player_client"] = fallback_clients
+                with yt_dlp.YoutubeDL(opts_fb) as ydl:
                     info = ydl.extract_info(url, download=False)
             else:
                 raise
