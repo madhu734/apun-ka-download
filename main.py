@@ -386,11 +386,10 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
             if platform in ("youtube", "ytmusic") and (
                 "bot" in low or "sign in" in low or "login" in low or "drm" in low or "format is not available" in low
             ):
-                current_clients = opts.get("extractor_args", {}).get("youtube", {}).get("player_client", [])
-                fallback_clients = ["visionos"] if ("web" in current_clients or "default" in current_clients) else ["default", "web"]
-                log.info("Primary extraction hit %s. Retrying with %s...", msg[:80], fallback_clients)
+                log.info("Primary extraction hit %s. Retrying with clean visionos client without cookies...", msg[:80])
                 opts_fb = base_ydl_opts(tmp)
-                opts_fb["extractor_args"]["youtube"]["player_client"] = fallback_clients
+                opts_fb.pop("cookiefile", None)
+                opts_fb["extractor_args"] = {"youtube": {"player_client": ["visionos"]}}
                 with yt_dlp.YoutubeDL(opts_fb) as ydl:
                     info = ydl.extract_info(url, download=False)
             else:
@@ -559,8 +558,25 @@ def locate_output(job: Job, info: Optional[dict[str, Any]]) -> Optional[Path]:
 
 def run_download_blocking(job: Job, url: str, kind: str, platform: str, selector: Optional[str]) -> None:
     try:
-        with new_downloader(job, kind, platform, selector) as ydl:
-            info = ydl.extract_info(url, download=True)
+        try:
+            with new_downloader(job, kind, platform, selector) as ydl:
+                info = ydl.extract_info(url, download=True)
+        except Exception as exc:
+            msg = clean_error(exc)
+            low = msg.lower()
+            if platform in ("youtube", "ytmusic") and (
+                "bot" in low or "sign in" in low or "login" in low or "drm" in low or "format is not available" in low
+            ):
+                log.info("Download hit %s. Retrying download with visionos client without cookies...", msg[:80])
+                opts_fb = build_download_opts(job, kind, platform, selector)
+                opts_fb.pop("cookiefile", None)
+                opts_fb["extractor_args"] = {"youtube": {"player_client": ["visionos"]}}
+                with yt_dlp.YoutubeDL(opts_fb) as ydl:
+                    if kind in ("m4a", "mp3"):
+                        ydl.add_post_processor(SquareCoverPP(ydl), when="before_dl")
+                    info = ydl.extract_info(url, download=True)
+            else:
+                raise
         if info and info.get("entries"):
             entries = [e for e in info["entries"] if e]
             info = entries[0] if entries else info
