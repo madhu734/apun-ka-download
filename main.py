@@ -135,7 +135,7 @@ class PrepareRequest(BaseModel):
 
 
 class CookieSaveRequest(BaseModel):
-    pin: str
+    pin: Optional[str] = None
     cookies_content: str
 
 
@@ -653,28 +653,67 @@ async def get_cookies_status():
     exists = COOKIES_FILE.exists() and COOKIES_FILE.stat().st_size > 0
     size = COOKIES_FILE.stat().st_size if exists else 0
     updated_at = int(COOKIES_FILE.stat().st_mtime) if exists else None
+    domains_found = set()
+    lines_count = 0
+    if exists:
+        try:
+            content = COOKIES_FILE.read_text(encoding="utf-8", errors="ignore")
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                lines_count += 1
+                parts = line.split("\t")
+                if parts:
+                    d = parts[0].lstrip(".").lower()
+                    for plat in ["youtube", "instagram", "facebook", "tiktok", "googlevideo", "spotify", "twitter", "x.com"]:
+                        if plat in d:
+                            domains_found.add(plat)
+        except Exception:
+            pass
     return {
         "active": exists,
         "size_bytes": size,
         "updated_at": updated_at,
+        "lines_count": lines_count,
+        "platforms": sorted(list(domains_found)),
     }
+
+
+@app.get("/api/admin/cookies-content")
+async def get_cookies_content():
+    """Allows admin UI to show current cookies content for quick inspection / editing."""
+    if COOKIES_FILE.exists() and COOKIES_FILE.stat().st_size > 0:
+        try:
+            return {"content": COOKIES_FILE.read_text(encoding="utf-8", errors="ignore")}
+        except Exception as e:
+            return {"content": "", "error": str(e)}
+    return {"content": ""}
 
 
 @app.post("/api/admin/cookies")
 async def save_cookies(req: CookieSaveRequest):
-    if req.pin.strip() != ADMIN_PIN:
-        raise HTTPException(status_code=401, detail="Invalid Admin PIN.")
+    # PASSWORD-FREE: No PIN/password required as per user directive so anyone can update expired cookies
     content = req.cookies_content.strip()
     if not content:
         if COOKIES_FILE.exists():
             COOKIES_FILE.unlink()
-        return {"status": "cleared", "active": False}
+        return {"status": "cleared", "active": False, "size_bytes": 0}
     COOKIES_FILE.write_text(content + "\n", encoding="utf-8")
     return {
         "status": "saved",
         "active": True,
         "size_bytes": COOKIES_FILE.stat().st_size,
+        "updated_at": int(time.time()),
     }
+
+
+@app.delete("/api/admin/cookies")
+async def delete_cookies():
+    """Explicit endpoint to clear cookies."""
+    if COOKIES_FILE.exists():
+        COOKIES_FILE.unlink()
+    return {"status": "cleared", "active": False}
 
 
 @app.get("/api/health")
