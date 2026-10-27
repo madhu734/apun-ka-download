@@ -1,294 +1,343 @@
-const urlInput = document.getElementById("urlInput");
-const pasteBtn = document.getElementById("pasteBtn");
-const fetchForm = document.getElementById("fetchForm");
-const modeVideoBtn = document.getElementById("modeVideoBtn");
-const modeAudioBtn = document.getElementById("modeAudioBtn");
+(() => {
+  "use strict";
 
-const detectedBadge = document.getElementById("detectedBadge");
-const detectedIcon = document.getElementById("detectedIcon");
-const detectedText = document.getElementById("detectedText");
+  const $ = (sel) => document.querySelector(sel);
+  const el = {
+    toggle: $("#modeToggle"),
+    form: $("#urlForm"),
+    input: $("#urlInput"),
+    paste: $("#pasteBtn"),
+    fetch: $("#fetchBtn"),
+    badge: $("#badgeRow"),
+    notice: $("#notice"),
+    error: $("#error"),
+    proc: $("#proc"),
+    kinetic: $("#kinetic"),
+    term: $("#termText"),
+    result: $("#result"),
+    thumb: $("#thumb"),
+    thumbImg: $("#thumbImg"),
+    thumbFallback: $("#thumbFallback"),
+    chip: $("#durationChip"),
+    resultBadge: $("#resultBadge"),
+    title: $("#mediaTitle"),
+    uploader: $("#mediaUploader"),
+    options: $("#options"),
+  };
 
-const processingPanel = document.getElementById("processingPanel");
-const kineticText = document.getElementById("kineticText");
-const syncStageText = document.getElementById("syncStageText");
-const syncProgressBar = document.getElementById("syncProgressBar");
+  const PLATFORMS = {
+    youtube: {
+      label: "YouTube", color: "#FF0033",
+      svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>',
+    },
+    ytmusic: {
+      label: "YT Music", color: "#FF0033",
+      svg: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="currentColor"/><circle cx="12" cy="12" r="7.2" stroke="#fff" stroke-width="1.4"/><path d="M10 8.6v6.8l5.6-3.4z" fill="#fff"/></svg>',
+    },
+    facebook: {
+      label: "Facebook", color: "#1877F2",
+      svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>',
+    },
+    instagram: {
+      label: "Instagram", color: "#E1306C",
+      svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2.5" y="2.5" width="19" height="19" rx="5.5"/><circle cx="12" cy="12" r="4.4"/><circle cx="17.6" cy="6.4" r="1.2" fill="currentColor" stroke="none"/></svg>',
+    },
+    tiktok: {
+      label: "TikTok", color: "#111318",
+      svg: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>',
+    },
+  };
 
-const errorPanel = document.getElementById("errorPanel");
-const errorMessage = document.getElementById("errorMessage");
+  const state = { mode: "video", busy: false, analysis: null };
 
-const resultPanel = document.getElementById("resultPanel");
-const overrideNotice = document.getElementById("overrideNotice");
-const mediaThumb = document.getElementById("mediaThumb");
-const mediaDuration = document.getElementById("mediaDuration");
-const resultPlatformBadge = document.getElementById("resultPlatformBadge");
-const mediaTitle = document.getElementById("mediaTitle");
-const mediaUploader = document.getElementById("mediaUploader");
-const optionsHeading = document.getElementById("optionsHeading");
-const optionsList = document.getElementById("optionsList");
-
-let currentMode = "video";
-let currentUrl = "";
-let currentPlatform = "";
-
-const FALLBACK_THUMB =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400"><rect width="640" height="400" fill="#111318"/><circle cx="320" cy="200" r="38" fill="#1e293b"/><polygon points="310,182 342,200 310,218" fill="#3b82f6"/></svg>`
-  );
-
-mediaThumb.addEventListener("error", () => {
-  if (mediaThumb.src !== FALLBACK_THUMB) {
-    mediaThumb.src = FALLBACK_THUMB;
+  /* ---------- Platform detection (mirrors the backend) ---------- */
+  function detectPlatform(raw) {
+    let url = (raw || "").trim();
+    if (!url) return null;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = "https://" + url;
+    let host;
+    try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
+    const is = (...ds) => ds.some((d) => host === d || host.endsWith("." + d));
+    if (host === "music.youtube.com") return "ytmusic";
+    if (is("youtube.com", "youtube-nocookie.com") || host === "youtu.be") return "youtube";
+    if (is("facebook.com", "fb.watch", "fb.gg")) return "facebook";
+    if (is("instagram.com")) return "instagram";
+    if (is("tiktok.com")) return "tiktok";
+    return null;
   }
-});
 
-const PLATFORM_META = {
-  youtube: {
-    name: "YouTube Video",
-    svg: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.5 31.5 0 0 0 0 12a31.5 31.5 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.5 31.5 0 0 0 24 12a31.5 31.5 0 0 0-.5-5.8zM9.6 15.6V8.4l6.3 3.6-6.3 3.6z"/></svg>`
-  },
-  ytmusic: {
-    name: "YouTube Music",
-    svg: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14.5c-2.49 0-4.5-2.01-4.5-4.5S9.51 7.5 12 7.5s4.5 2.01 4.5 4.5-2.01 4.5-4.5 4.5zm-1.5-6.5v4l3.5-2-3.5-2z"/></svg>`
-  },
-  facebook: {
-    name: "Facebook Video / Reel",
-    svg: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3v3h-3v6.95c5.05-.5 9-4.76 9-9.95z"/></svg>`
-  },
-  instagram: {
-    name: "Instagram Reel / Post",
-    svg: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2zm-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6zm4.4 3a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm5.25-3.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5z"/></svg>`
-  },
-  tiktok: {
-    name: "TikTok Video",
-    svg: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/></svg>`
-  }
-};
-
-// Initialize split-character kinetic "wait, processing" animation
-function initKineticPhrase(phrase = "wait, processing") {
-  kineticText.innerHTML = "";
-  [...phrase].forEach((ch, idx) => {
+  function badgeNode(key) {
     const span = document.createElement("span");
-    span.className = ch === " " ? "kinetic-char space" : "kinetic-char";
-    span.textContent = ch === " " ? "\u00A0" : ch;
-    span.style.animationDelay = `${idx * 0.06}s`;
-    kineticText.appendChild(span);
-  });
-}
-initKineticPhrase();
-
-function detectPlatformClient(url) {
-  const clean = url.toLowerCase().trim();
-  if (clean.includes("music.youtube.com")) return "ytmusic";
-  if (clean.includes("youtube.com") || clean.includes("youtu.be")) return "youtube";
-  if (clean.includes("facebook.com") || clean.includes("fb.watch") || clean.includes("fb.gg")) return "facebook";
-  if (clean.includes("instagram.com")) return "instagram";
-  if (clean.includes("tiktok.com")) return "tiktok";
-  return null;
-}
-
-function updatePlatformBadge(url) {
-  const platform = detectPlatformClient(url);
-  if (platform && PLATFORM_META[platform]) {
-    detectedBadge.classList.add("active");
-    detectedIcon.innerHTML = PLATFORM_META[platform].svg;
-    detectedText.textContent = `Detected: ${PLATFORM_META[platform].name}`;
-    if (platform === "ytmusic") {
-      setMode("audio");
-    }
-  } else {
-    detectedBadge.classList.remove("active");
-    detectedIcon.innerHTML = "";
-    detectedText.textContent = "Supported: YouTube • YT Music • Facebook • Instagram • TikTok";
+    span.className = "pbadge";
+    const p = PLATFORMS[key];
+    if (!p) { span.classList.add("unknown"); span.textContent = "Unsupported link"; return span; }
+    span.innerHTML = p.svg;
+    span.firstChild.style.color = p.color;
+    const label = document.createElement("span");
+    label.textContent = p.label;
+    span.appendChild(label);
+    return span;
   }
-}
 
-function setMode(mode) {
-  currentMode = mode;
-  modeVideoBtn.classList.toggle("active", mode === "video");
-  modeAudioBtn.classList.toggle("active", mode === "audio");
-}
-
-modeVideoBtn.addEventListener("click", () => setMode("video"));
-modeAudioBtn.addEventListener("click", () => setMode("audio"));
-
-urlInput.addEventListener("input", (e) => {
-  updatePlatformBadge(e.target.value);
-});
-
-// Auto-advance immediately when user pastes via keyboard/context menu
-urlInput.addEventListener("paste", () => {
-  setTimeout(() => {
-    const val = urlInput.value.trim();
-    updatePlatformBadge(val);
-    if (val) {
-      triggerAnalyze(val);
-    }
-  }, 40);
-});
-
-// Clipboard Paste Icon click -> auto-paste & auto-advance
-pasteBtn.addEventListener("click", async () => {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text && text.trim()) {
-      urlInput.value = text.trim();
-      updatePlatformBadge(urlInput.value);
-      triggerAnalyze(urlInput.value);
-    } else {
-      urlInput.focus();
-    }
-  } catch (err) {
-    urlInput.focus();
+  function renderBadge(key, hasText) {
+    el.badge.textContent = "";
+    if (!hasText) { el.badge.hidden = true; return; }
+    el.badge.hidden = false;
+    el.badge.appendChild(badgeNode(key));
   }
-});
 
-fetchForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const val = urlInput.value.trim();
-  if (val) {
-    triggerAnalyze(val);
+  /* ---------- Messages & UI state ---------- */
+  function clearMessages() { el.notice.hidden = true; el.error.hidden = true; el.notice.classList.remove("ok"); }
+  function showError(msg) { el.error.textContent = msg; el.error.hidden = false; }
+  function showNotice(msg, ok) {
+    el.notice.textContent = msg;
+    el.notice.classList.toggle("ok", !!ok);
+    el.notice.hidden = false;
   }
-});
 
-function showProcessing(stageMsg, pct = null) {
-  errorPanel.classList.add("hidden");
-  processingPanel.classList.remove("hidden");
-  syncStageText.textContent = stageMsg;
-  if (pct !== null && pct > 0) {
-    syncProgressBar.classList.add("determinate");
-    syncProgressBar.style.width = `${Math.min(100, Math.max(8, pct))}%`;
-  } else {
-    syncProgressBar.classList.remove("determinate");
-    syncProgressBar.style.width = "42%";
+  function lockUI(locked) {
+    state.busy = locked;
+    el.fetch.disabled = locked;
+    el.paste.disabled = locked;
+    el.toggle.querySelectorAll("button").forEach((b) => (b.disabled = locked));
+    el.options.querySelectorAll("button").forEach((b) => (b.disabled = locked));
   }
-}
 
-function hideProcessing() {
-  processingPanel.classList.add("hidden");
-}
-
-function showError(msg) {
-  hideProcessing();
-  resultPanel.classList.add("hidden");
-  errorMessage.textContent = msg;
-  errorPanel.classList.remove("hidden");
-}
-
-async function triggerAnalyze(url) {
-  currentUrl = url;
-  resultPanel.classList.add("hidden");
-  showProcessing("Analyzing link & inspecting available streams...");
-
-  try {
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, mode: currentMode })
+  function setMode(mode) {
+    state.mode = mode;
+    el.toggle.querySelectorAll(".seg-btn").forEach((b) => {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-selected", String(on));
     });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.detail || "Could not analyze this link.");
-    }
-
-    hideProcessing();
-    renderResults(data);
-  } catch (err) {
-    showError(err.message);
   }
-}
 
-function renderResults(data) {
-  currentPlatform = data.platform;
-  overrideNotice.classList.toggle("hidden", !data.mode_overridden);
+  function buildKinetic() {
+    const text = "wait, processing...";
+    el.kinetic.textContent = "";
+    el.kinetic.setAttribute("aria-label", "wait, processing...");
+    [...text].forEach((ch, i) => {
+      const s = document.createElement("span");
+      s.className = "k";
+      s.style.setProperty("--i", i);
+      s.setAttribute("aria-hidden", "true");
+      s.textContent = ch === " " ? "\u00A0" : ch;
+      el.kinetic.appendChild(s);
+    });
+  }
 
-  mediaThumb.src = data.thumbnail || FALLBACK_THUMB;
-  mediaDuration.textContent = data.duration || "0:00";
-  resultPlatformBadge.textContent = PLATFORM_META[data.platform]?.name || data.platform.toUpperCase();
-  mediaTitle.textContent = data.title;
-  mediaUploader.textContent = data.uploader;
+  function showProcessing() { el.proc.hidden = false; }
+  function hideProcessing() { el.proc.hidden = true; }
+  function setStage(text) { if (el.term) el.term.textContent = text || ""; }
 
-  optionsHeading.textContent =
-    data.effective_mode === "audio" ? "Audio Extraction Options" : "Select Video Resolution";
+  /* ---------- API ---------- */
+  async function api(path, options) {
+    let res;
+    try {
+      res = await fetch(path, options);
+    } catch {
+      throw new Error("Cannot reach the server. Check your connection and try again.");
+    }
+    let data = {};
+    try { data = await res.json(); } catch { /* non-JSON body */ }
+    if (!res.ok) {
+      const detail = typeof data.detail === "string" ? data.detail : "Something went wrong. Please try again.";
+      throw new Error(detail);
+    }
+    return data;
+  }
 
-  optionsList.innerHTML = "";
-  data.options.forEach((opt) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /* ---------- Analyze ---------- */
+  async function analyze() {
+    if (state.busy) return;
+    const url = el.input.value.trim();
+    clearMessages();
+    if (!url) { showError("Paste a link first."); return; }
+    const platform = detectPlatform(url);
+    renderBadge(platform, true);
+    if (!platform) {
+      showError("Unsupported link. Paste a YouTube, YT Music, Facebook, Instagram or TikTok URL.");
+      return;
+    }
+    el.result.hidden = true;
+    state.analysis = null;
+    lockUI(true);
+    showProcessing("Analyzing link & reading available streams...");
+    try {
+      const data = await api("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, mode: state.mode }),
+      });
+      state.analysis = data;
+      if (data.mode !== state.mode) setMode(data.mode);
+      if (data.mode_overridden && data.override_message) showNotice(data.override_message);
+      renderResult(data);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      hideProcessing();
+      lockUI(false);
+    }
+  }
+
+  /* ---------- Result ---------- */
+  function renderResult(data) {
+    el.title.textContent = data.title;
+    el.uploader.textContent = data.uploader || "";
+    el.resultBadge.textContent = "";
+    el.resultBadge.appendChild(badgeNode(data.platform));
+    renderBadge(data.platform, true);
+
+    el.chip.hidden = !data.duration_text;
+    el.chip.textContent = data.duration_text || "";
+
+    el.thumb.classList.remove("no-img");
+    el.thumbFallback.innerHTML = (PLATFORMS[data.platform] || PLATFORMS.youtube).svg;
+    el.thumbImg.onerror = () => el.thumb.classList.add("no-img");
+    if (data.thumbnail) { el.thumbImg.src = data.thumbnail; } else { el.thumb.classList.add("no-img"); }
+
+    el.options.textContent = "";
+    data.options.forEach((opt) => el.options.appendChild(optionNode(opt)));
+    el.result.hidden = false;
+    el.result.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function optionNode(opt) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "option-btn";
-    btn.innerHTML = `
-      <div class="option-main">
-        <span class="option-title">${opt.label}</span>
-        <span class="option-sub">${opt.sublabel}</span>
-      </div>
-      <div class="option-right">
-        <span class="option-size">${opt.size}</span>
-        <span class="option-badge">${opt.badge}</span>
-      </div>
-    `;
-    btn.addEventListener("click", () => startSyncedDownload(opt.id));
-    optionsList.appendChild(btn);
-  });
+    btn.className = "option";
 
-  resultPanel.classList.remove("hidden");
-}
+    const res = document.createElement("span");
+    res.className = "res";
+    res.textContent = opt.resolution;
 
-async function startSyncedDownload(preset) {
-  showProcessing("Queueing stream extraction on server...", 8);
+    const body = document.createElement("span");
+    const title = document.createElement("span");
+    title.className = "o-title";
+    title.textContent = opt.label;
+    const desc = document.createElement("span");
+    desc.className = "o-desc";
+    desc.style.display = "block";
+    desc.textContent = opt.description;
+    body.append(title, desc);
 
-  try {
-    const prepRes = await fetch("/api/prepare", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: currentUrl,
-        preset,
-        platform: currentPlatform
-      })
-    });
+    const side = document.createElement("span");
+    side.className = "o-side";
+    const size = document.createElement("span");
+    size.className = "o-size";
+    size.textContent = opt.size_text || "Size n/a";
+    const fmt = document.createElement("span");
+    fmt.className = "o-fmt";
+    fmt.textContent = opt.format;
+    side.append(size, fmt);
 
-    const prepData = await prepRes.json();
-    if (!prepRes.ok) {
-      throw new Error(prepData.detail || "Failed to start processing.");
-    }
-
-    const jobId = prepData.job_id;
-    pollJobStatus(jobId);
-  } catch (err) {
-    showError(err.message);
+    btn.append(res, body, side);
+    btn.addEventListener("click", () => startDownload(opt));
+    return btn;
   }
-}
 
-function pollJobStatus(jobId) {
-  const interval = setInterval(async () => {
+  /* ---------- Prepare -> status -> file ---------- */
+  async function startDownload(opt) {
+    if (state.busy || !state.analysis) return;
+    clearMessages();
+    lockUI(true);
+    showProcessing("Connecting to upstream server...");
     try {
-      const res = await fetch(`/api/status/${jobId}`);
-      const data = await res.json();
+      const { job_id } = await api("/api/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: state.analysis.url,
+          kind: opt.kind,
+          format_selector: opt.format_selector || null,
+        }),
+      });
+      await pollJob(job_id);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      hideProcessing();
+      lockUI(false);
+    }
+  }
 
-      if (!res.ok) {
-        clearInterval(interval);
-        showError(data.detail || "Processing session expired.");
+  async function pollJob(jobId) {
+    let failures = 0;
+    for (;;) {
+      let s;
+      try {
+        s = await api(`/api/status/${jobId}`);
+        failures = 0;
+      } catch (err) {
+        if (++failures >= 5) throw err;
+        await sleep(900);
+        continue;
+      }
+      setStage(s.stage);
+      if (s.status === "error") throw new Error(s.error || "The download failed.");
+      if (s.status === "ready") {
+        await sleep(350);
+        triggerDownload(jobId);
+        showNotice("Your download has started. Check your downloads folder.", true);
         return;
       }
-
-      showProcessing(data.stage || "Processing stream...", data.progress || null);
-
-      if (data.status === "ready") {
-        clearInterval(interval);
-        showProcessing("Stream ready! Starting browser download...", 100);
-        setTimeout(() => {
-          window.location.href = `/api/file/${jobId}`;
-          hideProcessing();
-        }, 400);
-      } else if (data.status === "error") {
-        clearInterval(interval);
-        showError(data.error || "Failed to process this format.");
-      }
-    } catch (err) {
-      clearInterval(interval);
-      showError("Lost connection to server while syncing progress.");
+      await sleep(600);
     }
-  }, 600);
-}
+  }
+
+  function triggerDownload(jobId) {
+    const a = document.createElement("a");
+    a.href = `/api/file/${encodeURIComponent(jobId)}`;
+    a.download = "";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  /* ---------- Input wiring ---------- */
+  function setUrl(text) {
+    el.input.value = text;
+    renderBadge(detectPlatform(text), !!text.trim());
+  }
+
+  el.form.addEventListener("submit", (e) => { e.preventDefault(); analyze(); });
+
+  el.input.addEventListener("input", () => renderBadge(detectPlatform(el.input.value), !!el.input.value.trim()));
+
+  // Keyboard / mobile paste: populate, detect, and advance instantly.
+  el.input.addEventListener("paste", (e) => {
+    const text = ((e.clipboardData || window.clipboardData)?.getData("text") || "").trim();
+    if (!text) return;
+    e.preventDefault();
+    setUrl(text);
+    analyze();
+  });
+
+  // One-click clipboard button.
+  el.paste.addEventListener("click", async () => {
+    clearMessages();
+    try {
+      const text = ((await navigator.clipboard.readText()) || "").trim();
+      if (!text) { showError("Your clipboard is empty. Copy a link first."); return; }
+      setUrl(text);
+      analyze();
+    } catch {
+      showError("Clipboard access was blocked. Long-press the box and choose Paste instead.");
+      el.input.focus();
+    }
+  });
+
+  el.toggle.addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg-btn");
+    if (!btn || state.busy || btn.dataset.mode === state.mode) return;
+    setMode(btn.dataset.mode);
+    // If a result is already showing, refresh it for the new mode.
+    if (state.analysis && el.input.value.trim()) analyze();
+  });
+
+  buildKinetic();
+})();
