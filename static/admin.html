@@ -3,105 +3,612 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Cookie Manager — Apun Ka Download</title>
+  <title>Cookies.txt Manager — Apun Ka Download</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .admin-box { display: flex; flex-direction: column; gap: 16px; }
-    .admin-textarea {
+    .admin-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Status Card */
+    .status-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .status-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .status-indicator-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+
+    .pulse-dot-green {
+      width: 12px;
+      height: 12px;
+      background: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      animation: pulse 2s infinite;
+    }
+
+    .pulse-dot-gray {
+      width: 12px;
+      height: 12px;
+      background: #94a3b8;
+      border-radius: 50%;
+    }
+
+    .stats-pill-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .stat-chip {
+      background: #f1f5f9;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      border: 1px solid #e2e8f0;
+    }
+
+    .stat-chip strong {
+      color: var(--text-main);
+    }
+
+    .platforms-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .platform-badge {
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--accent);
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+    }
+
+    /* Dropzone & Editor */
+    .editor-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .dropzone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      background: #f8fafc;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .dropzone-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text-main);
+    }
+
+    .dropzone-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .editor-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .toolbar-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .tool-btn {
+      background: #f1f5f9;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tool-btn:hover {
+      background: #e2e8f0;
+      color: var(--text-main);
+    }
+
+    .cookie-textarea {
       width: 100%;
-      min-height: 200px;
+      min-height: 280px;
       padding: 14px;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.82rem;
+      line-height: 1.5;
       background: #f8fafc;
       border: 1.5px solid var(--border-subtle);
       border-radius: 12px;
       resize: vertical;
+      outline: none;
+      color: #0f172a;
+      transition: border-color 0.2s;
     }
-    .pin-input {
-      width: 100%;
-      height: 46px;
-      padding: 0 14px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.92rem;
-      background: #f8fafc;
-      border: 1.5px solid var(--border-subtle);
-      border-radius: 10px;
+
+    .cookie-textarea:focus {
+      border-color: var(--accent);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
-    .admin-actions { display: flex; gap: 12px; align-items: center; }
-    .status-banner {
-      padding: 10px 14px;
+
+    /* Actions Footer */
+    .button-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 4px;
+    }
+
+    .btn-group-left {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .save-btn {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #ffffff;
+      border: none;
+      padding: 12px 24px;
       border-radius: 10px;
-      font-size: 0.85rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .save-btn:hover {
+      background: linear-gradient(135deg, #1d4ed8, #1e40af);
+      transform: translateY(-1px);
+    }
+
+    .clear-btn {
+      background: #fff;
+      color: #ef4444;
+      border: 1.5px solid #fecaca;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 0.9rem;
       font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .clear-btn:hover {
+      background: #fef2f2;
+      border-color: #ef4444;
+    }
+
+    .back-btn {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s;
+    }
+
+    .back-btn:hover {
+      color: var(--accent);
+    }
+
+    /* Guide Box */
+    .guide-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .guide-card h3 {
+      color: var(--text-main);
+      font-size: 0.98rem;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .guide-card ol {
+      margin-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .guide-card code {
       background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-size: 0.82rem;
+    }
+
+    /* Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      background: #0f172a;
+      color: #fff;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #toast.show {
+      transform: translateY(0);
+      opacity: 1;
     }
   </style>
 </head>
 <body>
   <div class="ambient-bg"></div>
-  <main class="shell">
+
+  <main class="shell admin-container">
     <header class="brand-header">
       <div class="brand-badge">
         <span class="pulse-dot"></span>
-        <span>ADMIN CONSOLE</span>
+        <span>COOKIE MANAGER</span>
       </div>
-      <h1 class="brand-title">Cookies.txt Manager</h1>
-      <p class="brand-subtitle">Upload Netscape format cookies.txt for authenticated age-restricted or premium stream extraction.</p>
+      <h1 class="brand-title">Netscape Cookies.txt</h1>
+      <p class="brand-subtitle">Paste or upload your cookies.txt file to unlock age-restricted, premium, and member streams on YouTube, Instagram, and Facebook. Zero password required.</p>
     </header>
 
-    <section class="control-card admin-box">
-      <div id="cookieStatus" class="status-banner">Checking current cookies.txt status...</div>
-      <input type="password" id="pinInput" class="pin-input" placeholder="Enter Admin PIN" required />
-      <textarea id="cookieInput" class="admin-textarea" placeholder="# Netscape HTTP Cookie File&#10;Paste your cookies.txt content here (leave blank to clear)..."></textarea>
-      <div class="admin-actions">
-        <button type="button" id="saveCookieBtn" class="fetch-btn">Save Cookies.txt</button>
-        <a href="/" class="admin-link">← Back to Downloader</a>
+    <!-- Status Card -->
+    <section class="status-card">
+      <div class="status-header-row">
+        <div class="status-indicator-box">
+          <span id="pulseDot" class="pulse-dot-gray"></span>
+          <span id="statusTitle">Checking cookies...</span>
+        </div>
+        <button id="refreshBtn" class="tool-btn" type="button">🔄 Refresh Status</button>
       </div>
+
+      <div class="stats-pill-grid">
+        <div class="stat-chip">Size: <strong id="statSize">0 KB</strong></div>
+        <div class="stat-chip">Lines: <strong id="statLines">0</strong></div>
+        <div class="stat-chip">Updated: <strong id="statUpdated">Never</strong></div>
+      </div>
+
+      <div class="platforms-box">
+        <span>Detected Platforms:</span>
+        <div id="platformsList"><span style="color:#94a3b8; font-style:italic;">None</span></div>
+      </div>
+    </section>
+
+    <!-- Editor Card -->
+    <section class="editor-card">
+      <!-- File Dropzone -->
+      <div id="dropzone" class="dropzone">
+        <input type="file" id="fileInput" accept=".txt" style="display: none;" />
+        <span style="font-size: 1.6rem;">📂</span>
+        <div class="dropzone-title">Click to browse or drop cookies.txt here</div>
+        <div class="dropzone-hint">Accepts standard Netscape HTTP cookie format exported from browser</div>
+      </div>
+
+      <!-- Editor Toolbar -->
+      <div class="editor-toolbar">
+        <div class="toolbar-title">Cookie Content Editor</div>
+        <div class="toolbar-actions">
+          <button type="button" id="loadExistingBtn" class="tool-btn">📥 Load Current</button>
+          <button type="button" id="pasteBtn" class="tool-btn">📋 Paste</button>
+          <button type="button" id="clearEditorBtn" class="tool-btn">🧹 Clear</button>
+        </div>
+      </div>
+
+      <textarea id="cookieInput" class="cookie-textarea" placeholder="# Netscape HTTP Cookie File&#10;# Exported from Chrome/Firefox using 'Get cookies.txt LOCALLY'&#10;# Paste tab-separated cookie lines here..."></textarea>
+
+      <!-- Buttons Row -->
+      <div class="button-row">
+        <div class="btn-group-left">
+          <button type="button" id="saveCookieBtn" class="save-btn">
+            <span>💾</span>
+            <span>Save &amp; Activate Cookies</span>
+          </button>
+          <button type="button" id="deleteCookiesBtn" class="clear-btn">
+            <span>🗑️ Clear Server Cookies</span>
+          </button>
+        </div>
+        <a href="/" class="back-btn">← Back to Downloader</a>
+      </div>
+    </section>
+
+    <!-- Quick Guide Card -->
+    <section class="guide-card">
+      <h3>💡 How to export cookies from your browser:</h3>
+      <ol>
+        <li>Install the Chrome / Edge extension: <strong>Get cookies.txt LOCALLY</strong> or <strong>EditThisCookie</strong>.</li>
+        <li>Open <code>youtube.com</code> or your target platform in your browser while logged in.</li>
+        <li>Click the extension icon &rarr; choose <strong>Export</strong> or copy the Netscape cookies.</li>
+        <li>Drop the exported file above or paste the contents into the editor and click <strong>Save &amp; Activate Cookies</strong>.</li>
+      </ol>
     </section>
   </main>
 
+  <div id="toast">✅ Notification</div>
+
   <script>
-    const statusEl = document.getElementById("cookieStatus");
-    const pinEl = document.getElementById("pinInput");
-    const cookieEl = document.getElementById("cookieInput");
+    const statusTitle = document.getElementById("statusTitle");
+    const pulseDot = document.getElementById("pulseDot");
+    const statSize = document.getElementById("statSize");
+    const statLines = document.getElementById("statLines");
+    const statUpdated = document.getElementById("statUpdated");
+    const platformsList = document.getElementById("platformsList");
+    const cookieInput = document.getElementById("cookieInput");
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
     const saveBtn = document.getElementById("saveCookieBtn");
+    const deleteBtn = document.getElementById("deleteCookiesBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const loadExistingBtn = document.getElementById("loadExistingBtn");
+    const pasteBtn = document.getElementById("pasteBtn");
+    const clearEditorBtn = document.getElementById("clearEditorBtn");
+    const toast = document.getElementById("toast");
+
+    function showToast(msg, isError = false) {
+      toast.textContent = msg;
+      toast.style.background = isError ? "#dc2626" : "#0f172a";
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 3500);
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return "0 KB";
+      const kb = bytes / 1024;
+      if (kb < 1024) return kb.toFixed(1) + " KB";
+      return (kb / 1024).toFixed(2) + " MB";
+    }
+
+    function formatDate(ts) {
+      if (!ts) return "Never";
+      const d = new Date(ts * 1000);
+      return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
 
     async function refreshStatus() {
       try {
         const res = await fetch("/api/admin/cookies-status");
         const data = await res.json();
-        statusEl.textContent = data.active
-          ? `✅ Active cookies.txt loaded (${data.size_bytes} bytes)`
-          : "ℹ️ No cookies.txt currently active (using public extraction)";
-      } catch (e) {
-        statusEl.textContent = "Unable to check status.";
+
+        if (data.active) {
+          pulseDot.className = "pulse-dot-green";
+          statusTitle.textContent = "Cookies.txt Active & In Use";
+          statusTitle.style.color = "#059669";
+        } else {
+          pulseDot.className = "pulse-dot-gray";
+          statusTitle.textContent = "No Cookies Active (Public Stream Mode)";
+          statusTitle.style.color = "#64748b";
+        }
+
+        statSize.textContent = formatBytes(data.size_bytes);
+        statLines.textContent = (data.lines_count || 0) + " entries";
+        statUpdated.textContent = formatDate(data.updated_at);
+
+        if (data.platforms && data.platforms.length > 0) {
+          platformsList.innerHTML = data.platforms.map(p => `<span class="platform-badge">${p}</span>`).join(" ");
+        } else {
+          platformsList.innerHTML = `<span style="color:#94a3b8; font-style:italic;">None detected</span>`;
+        }
+      } catch (err) {
+        statusTitle.textContent = "Error fetching status";
       }
     }
-    refreshStatus();
 
+    async function loadExistingCookies() {
+      try {
+        const res = await fetch("/api/admin/cookies-content");
+        const data = await res.json();
+        if (data.content) {
+          cookieInput.value = data.content;
+          showToast("Loaded active cookies from server!");
+        } else {
+          showToast("No existing cookies found on server.", true);
+        }
+      } catch (e) {
+        showToast("Failed to load cookies: " + e.message, true);
+      }
+    }
+
+    // Save Cookies (Zero PIN / Password)
     saveBtn.addEventListener("click", async () => {
+      const content = cookieInput.value.trim();
+      if (!content) {
+        if (!confirm("Textarea is empty. This will clear the active cookies.txt on the server. Proceed?")) {
+          return;
+        }
+      }
+
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = "0.7";
+
       try {
         const res = await fetch("/api/admin/cookies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pin: pinEl.value,
-            cookies_content: cookieEl.value
-          })
+          body: JSON.stringify({ cookies_content: content })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to save");
-        statusEl.textContent = data.active
-          ? `✅ Saved! cookies.txt is now active (${data.size_bytes} bytes)`
-          : "🗑️ Cleared cookies.txt.";
+        if (!res.ok) throw new Error(data.detail || "Failed to save cookies.");
+
+        if (data.active) {
+          showToast(`✅ Saved! Cookies are now active (${formatBytes(data.size_bytes)})`);
+        } else {
+          showToast("🗑️ Cookies.txt cleared successfully.");
+        }
+        await refreshStatus();
       } catch (err) {
-        alert(err.message);
+        showToast("❌ Error: " + err.message, true);
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = "1";
       }
     });
+
+    // Delete Cookies
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm("Are you sure you want to delete and clear the server cookies.txt?")) return;
+
+      try {
+        const res = await fetch("/api/admin/cookies", { method: "DELETE" });
+        const data = await res.json();
+        cookieInput.value = "";
+        showToast("🗑️ Server cookies deleted.");
+        await refreshStatus();
+      } catch (e) {
+        showToast("Failed to delete: " + e.message, true);
+      }
+    });
+
+    // Dropzone handlers
+    dropzone.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) readFile(file);
+    });
+
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+
+    dropzone.addEventListener("dragleave", () => {
+      dropzone.classList.remove("dragover");
+    });
+
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) readFile(file);
+    });
+
+    function readFile(file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        cookieInput.value = ev.target.result;
+        showToast(`📄 Loaded ${file.name} (${formatBytes(file.size)})`);
+      };
+      reader.readAsText(file);
+    }
+
+    // Helper Buttons
+    loadExistingBtn.addEventListener("click", loadExistingCookies);
+
+    pasteBtn.addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          cookieInput.value = text;
+          showToast("📋 Pasted from clipboard!");
+        }
+      } catch (e) {
+        showToast("Clipboard access denied. Please paste manually.", true);
+      }
+    });
+
+    clearEditorBtn.addEventListener("click", () => {
+      cookieInput.value = "";
+      showToast("Editor cleared");
+    });
+
+    refreshBtn.addEventListener("click", () => {
+      refreshStatus();
+      showToast("🔄 Status refreshed");
+    });
+
+    // Initial Load
+    refreshStatus();
   </script>
 </body>
 </html>
