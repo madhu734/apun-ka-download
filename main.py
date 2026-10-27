@@ -155,7 +155,7 @@ def base_ydl_opts(workdir: Path) -> dict[str, Any]:
         "color": "no_color",
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "mweb", "web"]
+                "player_client": ["visionos"]
             }
         },
         "js_runtimes": {"node": {}},
@@ -367,8 +367,19 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
     tmp = Path(tempfile.mkdtemp(prefix="analyze-", dir=WORK_DIR))
     try:
         opts = base_ydl_opts(tmp)
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as exc:
+            msg = clean_error(exc)
+            low = msg.lower()
+            if platform in ("youtube", "ytmusic") and ("bot" in low or "sign in" in low or "login" in low or "drm" in low):
+                log.info("Primary extraction hit bot check. Retrying with visionos player_client...")
+                opts["extractor_args"]["youtube"]["player_client"] = ["visionos"]
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+            else:
+                raise
         if not info:
             raise ApiError(422, "No media information could be read from this link.")
         if info.get("entries"):
