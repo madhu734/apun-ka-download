@@ -123,7 +123,6 @@ def normalize_cookies_content(raw: str) -> str:
         if stripped.startswith("# Netscape HTTP Cookie File") or stripped.startswith("# HTTP Cookie File"):
             continue
         if stripped.startswith("#HttpOnly_"):
-            # Keep #HttpOnly_ prefix supported by curl/yt-dlp, ensure tab-separated fields
             parts = stripped.split("\t")
             if len(parts) < 7:
                 parts = re.split(r"\s+", stripped, maxsplit=6)
@@ -362,7 +361,8 @@ def base_ydl_opts(workdir: Path, use_cookies: Optional[bool] = None, yt_clients:
     cookie_present = has_valid_cookies() if use_cookies is None else (use_cookies and has_valid_cookies())
 
     if yt_clients is None:
-        yt_clients = ["web", "mweb", "tv_embedded"] if cookie_present else ["ios", "visionos", "tv"]
+        # visionos does NOT support cookies in yt-dlp; use web/mweb/tv_embedded when cookies are enabled
+        yt_clients = ["default", "web", "mweb", "tv_embedded"] if cookie_present else ["visionos", "ios", "tv"]
 
     opts: dict[str, Any] = {
         "quiet": True,
@@ -384,6 +384,7 @@ def base_ydl_opts(workdir: Path, use_cookies: Optional[bool] = None, yt_clients:
             }
         },
         "js_runtimes": {"node": {}},
+        "remote_components": ["ejs:github"],
     }
     if cookie_present:
         try:
@@ -431,7 +432,7 @@ def _has_audio(fmt: dict[str, Any]) -> bool:
 def _video_res(fmt: dict[str, Any]) -> Optional[int]:
     w, h = fmt.get("width"), fmt.get("height")
     if w and h:
-        return snap_resolution(int(min(w, h)))  # 1080x1920 (9:16) -> 1080p
+        return snap_resolution(int(min(w, h)))
     value = h or w
     return snap_resolution(int(value)) if value else None
 
@@ -596,12 +597,10 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
         last_exc: Optional[Exception] = None
 
         if platform in ("youtube", "ytmusic"):
-            # Try cascade of strategies so expired cookies or datacenter bot-checks never block public videos
             strategies: list[tuple[bool, list[str]]] = []
             if has_valid_cookies():
-                strategies.append((True, ["web", "mweb", "tv_embedded"]))
-                strategies.append((True, ["ios", "visionos", "tv"]))
-            strategies.append((False, ["ios", "visionos", "tv"]))
+                strategies.append((True, ["default", "web", "mweb", "tv_embedded"]))
+            strategies.append((False, ["visionos", "ios", "tv"]))
             strategies.append((False, ["android_vr", "mweb", "web_embedded"]))
 
             for use_c, clients in strategies:
@@ -807,9 +806,8 @@ def run_download_blocking(job: Job, url: str, kind: str, platform: str, selector
         if platform in ("youtube", "ytmusic"):
             strategies: list[tuple[bool, list[str], Optional[str]]] = []
             if has_valid_cookies():
-                strategies.append((True, ["web", "mweb", "tv_embedded"], selector))
-                strategies.append((True, ["ios", "visionos", "tv"], None))
-            strategies.append((False, ["ios", "visionos", "tv"], selector))
+                strategies.append((True, ["default", "web", "mweb", "tv_embedded"], selector))
+            strategies.append((False, ["visionos", "ios", "tv"], selector))
             strategies.append((False, ["android_vr", "mweb", "web_embedded"], None))
 
             for use_c, clients, sel in strategies:
@@ -959,7 +957,7 @@ async def analyze(req: AnalyzeRequest) -> dict[str, Any]:
         raise HTTPException(err.status, err.message)
 
     options: list[dict[str, Any]] = []
-    if mode == "video":
+    if mode == "video\":
         options = build_video_options(info)
         if not options:
             mode, overridden = "audio", True
