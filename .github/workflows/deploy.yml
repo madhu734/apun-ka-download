@@ -11,11 +11,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Apun Ka Download Webhook on Coolify
+        if: github.event_name == 'push'
         run: |
           echo "Triggering auto-deploy for commit ${{ github.sha }}..."
           curl -sS -X POST "https://download.tmadhu.me/api/webhook/github" \
             -H "Content-Type: application/json" \
             -d "{\"commit_sha\": \"${{ github.sha }}\", \"repo\": \"${{ github.repository }}\"}" || true
-          curl -sS -X POST "http://iruropwov7dpshz81pxprsxf.140.238.160.99.sslip.io/api/webhook/github" \
+
+      - name: Run Live Smoke Test (Cookies & Random YouTube Link)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "=== 1. Health Check ==="
+          curl -sS https://download.tmadhu.me/api/health
+          echo ""
+          echo "=== 2. Cookies Status ==="
+          curl -sS https://download.tmadhu.me/api/admin/cookies-status
+          echo ""
+          echo "=== 3. Test Save & Normalize Cookie ==="
+          curl -sS -X POST https://download.tmadhu.me/api/admin/cookies \
             -H "Content-Type: application/json" \
-            -d "{\"commit_sha\": \"${{ github.sha }}\", \"repo\": \"${{ github.repository }}\"}" || true
+            -d '{"cookies_content": ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tPREF\tf6=40000000&hl=en"}'
+          echo ""
+          echo "=== 4. Test YouTube Video Analyze (with Cookies Active) ==="
+          curl -sS -X POST https://download.tmadhu.me/api/analyze \
+            -H "Content-Type: application/json" \
+            -d '{"url": "https://www.youtube.com/watch?v=jNQXAC9IVRw", "mode": "video"}'
+          echo ""
+          echo "=== 5. Clear Test Cookie ==="
+          curl -sS -X DELETE https://download.tmadhu.me/api/admin/cookies
+          echo ""

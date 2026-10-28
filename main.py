@@ -90,7 +90,6 @@ def normalize_cookies_content(raw: str) -> str:
     if not text:
         return ""
 
-    # 1. Check if the user pasted JSON array of cookies
     if text.startswith("[") and text.endswith("]"):
         try:
             items = json.loads(text)
@@ -113,7 +112,6 @@ def normalize_cookies_content(raw: str) -> str:
         except Exception as exc:
             log.warning("Failed to parse JSON cookies, falling back to Netscape parser: %s", exc)
 
-    # 2. Normalize Netscape format lines
     raw_lines = [ln.rstrip("\r") for ln in text.splitlines()]
     out_lines = ["# Netscape HTTP Cookie File"]
     for ln in raw_lines:
@@ -149,8 +147,6 @@ def normalize_cookies_content(raw: str) -> str:
 
 
 async def sync_cookies_to_coolify_env(content: str) -> None:
-    """Persists cookies.txt in Coolify's SAVED_COOKIES_B64 env var so container
-    rebuilds/redeployments never lose uploaded cookies."""
     if not COOLIFY_API_TOKEN or not COOLIFY_APP_UUID:
         return
     b64_val = base64.b64encode(content.encode("utf-8")).decode("ascii") if content else ""
@@ -173,7 +169,6 @@ async def sync_cookies_to_coolify_env(content: str) -> None:
 
 
 async def restore_cookies_from_coolify_env() -> None:
-    """Restores cookies.txt on container startup if wiped by a container rebuild."""
     try:
         if COOKIE_FILE.is_file() and COOKIE_FILE.stat().st_size > 0:
             return
@@ -356,12 +351,9 @@ def has_valid_cookies() -> bool:
 
 
 def base_ydl_opts(workdir: Path, use_cookies: Optional[bool] = None, yt_clients: Optional[list[str]] = None) -> dict[str, Any]:
-    """Common yt-dlp options. A private copy of the cookie file is used so
-    yt-dlp never needs write access to the shared cookie file."""
     cookie_present = has_valid_cookies() if use_cookies is None else (use_cookies and has_valid_cookies())
 
     if yt_clients is None:
-        # visionos does NOT support cookies in yt-dlp; use web/mweb/tv_embedded when cookies are enabled
         yt_clients = ["default", "web", "mweb", "tv_embedded"] if cookie_present else ["visionos", "ios", "tv"]
 
     opts: dict[str, Any] = {
@@ -662,7 +654,7 @@ class Job:
     id: str
     dir: Path
     created: float = field(default_factory=time.time)
-    status: str = "processing"  # processing | ready | error
+    status: str = "processing"
     stage: str = "Connecting to upstream server..."
     progress: Optional[float] = None
     file: Optional[Path] = None
@@ -749,8 +741,6 @@ SQUARE_CROP = "crop='if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'"
 
 
 class SquareCoverPP(FFmpegPostProcessor):
-    """Center-crops downloaded cover art to a square (album-art style)."""
-
     def run(self, info):
         for thumb in info.get("thumbnails") or []:
             path = thumb.get("filepath")
@@ -957,7 +947,7 @@ async def analyze(req: AnalyzeRequest) -> dict[str, Any]:
         raise HTTPException(err.status, err.message)
 
     options: list[dict[str, Any]] = []
-    if mode == "video\":
+    if mode == "video":
         options = build_video_options(info)
         if not options:
             mode, overridden = "audio", True
@@ -965,6 +955,7 @@ async def analyze(req: AnalyzeRequest) -> dict[str, Any]:
     if mode == "audio":
         options = build_audio_options(info, platform)
 
+    log.info("Analyzed %s (%s): title='%s', options=%d", platform, mode, (info.get("title") or "")[:40], len(options))
     return {
         "platform": platform,
         "platform_label": PLATFORM_LABELS[platform],
