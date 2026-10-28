@@ -1,7 +1,7 @@
 """Apun Ka Download - single-container media extractor/downloader.
 
 FastAPI + yt-dlp (in-process) + FFmpeg (remux only for video, no re-encoding).
-Serves the REST API and the static frontend on port 8000.
+Includes bgutil-pot BotGuard PO Token server + persistent Netscape/JSON cookies.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -57,6 +58,7 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip()
 
 BOOT_COMMIT_SHA: Optional[str] = None
 LAST_DEPLOY_TRIGGERED_SHA: Optional[str] = None
+POT_SERVER_PROC: Optional[subprocess.Popen] = None
 
 PRIVATE_FB_MESSAGE = (
     "This link belongs to a private Facebook group or restricted post. "
@@ -146,6 +148,19 @@ def normalize_cookies_content(raw: str) -> str:
     return "\n".join(out_lines) + "\n"
 
 
+def has_authenticated_youtube_cookies() -> bool:
+    """Checks whether cookies.txt actually contains YouTube login session cookies
+    (like SID, HSID, __Secure-1PSID, __Secure-3PSID, or LOGIN_INFO)."""
+    if not has_valid_cookies():
+        return False
+    try:
+        content = COOKIE_FILE.read_text(encoding="utf-8", errors="ignore")
+        auth_Markers = ("__Secure-1PSID", "__Secure-3PSID", "SAPISID", "LOGIN_INFO", "\tSID\t", "\tHSID\t")
+        return any(m in content for m in auth_Markers)
+    except Exception:
+        return False
+
+
 async def sync_cookies_to_coolify_env(content: str) -> None:
     if not COOLIFY_API_TOKEN or not COOLIFY_APP_UUID:
         return
@@ -203,8 +218,25 @@ async def restore_cookies_from_coolify_env() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Auto-Deploy & Domain Helpers
+# Auto-Deploy & POT Server Helpers
 # --------------------------------------------------------------------------- #
+def start_pot_server() -> None:
+    global POT_SERVER_PROC
+    pot_bin = shutil.which("bgutil-pot")
+    if not pot_bin:
+        log.warning("bgutil-pot binary not found in PATH")
+        return
+    try:
+        POT_SERVER_PROC = subprocess.Popen(
+            [pot_bin, "server", "--host", "127.0.0.1", "--port", "4416"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        log.info("Started bgutil-pot BotGuard PO Token server on 127.0.0.1:4416 (pid=%s)", POT_SERVER_PROC.pid)
+    except Exception as exc:
+        log.warning("Failed to start bgutil-pot server: %s", exc)
+
+
 async def fetch_latest_github_sha() -> Optional[str]:
     url = f"https://api.github.com/repos/{GITHUB_REPO}/commits/{GITHUB_BRANCH}"
     headers = {
@@ -353,8 +385,11 @@ def has_valid_cookies() -> bool:
 def base_ydl_opts(workdir: Path, use_cookies: Optional[bool] = None, yt_clients: Optional[list[str]] = None) -> dict[str, Any]:
     cookie_present = has_valid_cookies() if use_cookies is None else (use_cookies and has_valid_cookies())
 
-    if yt_clients is None:
-        yt_clients = ["default", "web", "mweb", "tv_embedded"] if cookie_present else ["visionos", "ios", "tv"]
+    extractor_args: dict[str, Any] = {}
+    if yt_clients is not None:
+        extractor_args["youtube"] = {"player_client": yt_clients}
+    elif cookie_present:
+        extractor_args["youtube"] = {"player_client": ["web", "web_safari", "web_embedded", "mweb"]}
 
     opts: dict[str, Any] = {
         "quiet": True,
@@ -370,11 +405,7 @@ def base_ydl_opts(workdir: Path, use_cookies: Optional[bool] = None, yt_clients:
         "nocheckcertificate": True,
         "noprogress": True,
         "color": "no_color",
-        "extractor_args": {
-            "youtube": {
-                "player_client": yt_clients,
-            }
-        },
+        "extractor_args": extractor_args,
         "js_runtimes": {"node": {}},
         "remote_components": ["ejs:github"],
     }
@@ -589,11 +620,12 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
         last_exc: Optional[Exception] = None
 
         if platform in ("youtube", "ytmusic"):
-            strategies: list[tuple[bool, list[str]]] = []
-            if has_valid_cookies():
-                strategies.append((True, ["default", "web", "mweb", "tv_embedded"]))
-            strategies.append((False, ["visionos", "ios", "tv"]))
-            strategies.append((False, ["android_vr", "mweb", "web_embedded"]))
+            strategies: list[tuple[bool, Optional[list[str]]]] = []
+            if has_authenticated_youtube_cookies():
+                strategies.append((True, ["web", "web_safari", "web_embedded", "mweb"]))
+            # With bgutil-pot PO Token server running on 127.0.0.1:4416, web/mweb/default receive real BotGuard PO tokens
+            strategies.append((False, ["web", "mweb", "web_safari", "ios"]))
+            strategies.append((False, ["visionos", "tv_embedded", "web_embedded"]))
 
             for use_c, clients in strategies:
                 try:
@@ -638,8 +670,8 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
         if "sign in" in low or "login" in low or "bot" in low or "cookies" in low:
             raise ApiError(
                 422,
-                "YouTube requested a bot check or fresh cookies for this media. "
-                "Please update your cookies.txt file on the /admin page or try another link.",
+                "YouTube requested a logged-in session for this video. "
+                "Please export fresh YouTube cookies from an Incognito browser window and save them on /admin.",
             )
         raise ApiError(422, f"Could not read this link: {msg[:220]}")
     finally:
@@ -795,10 +827,10 @@ def run_download_blocking(job: Job, url: str, kind: str, platform: str, selector
 
         if platform in ("youtube", "ytmusic"):
             strategies: list[tuple[bool, list[str], Optional[str]]] = []
-            if has_valid_cookies():
-                strategies.append((True, ["default", "web", "mweb", "tv_embedded"], selector))
-            strategies.append((False, ["visionos", "ios", "tv"], selector))
-            strategies.append((False, ["android_vr", "mweb", "web_embedded"], None))
+            if has_authenticated_youtube_cookies():
+                strategies.append((True, ["web", "web_safari", "web_embedded", "mweb"], selector))
+            strategies.append((False, ["web", "mweb", "web_safari", "ios"], selector))
+            strategies.append((False, ["visionos", "tv_embedded", "web_embedded"], None))
 
             for use_c, clients, sel in strategies:
                 try:
@@ -878,14 +910,22 @@ async def lifespan(_: FastAPI):
         Path(COOKIE_FILE).parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
+    start_pot_server()
     janitor = asyncio.create_task(cleanup_loop())
     watcher = asyncio.create_task(github_auto_sync_watcher())
-    log.info("Apun Ka Download ready. yt-dlp %s, ffmpeg=%s", yt_dlp.version.__version__, bool(shutil.which("ffmpeg")))
+    log.info(
+        "Apun Ka Download ready. yt-dlp %s, ffmpeg=%s, bgutil-pot=%s",
+        yt_dlp.version.__version__,
+        bool(shutil.which("ffmpeg")),
+        bool(shutil.which("bgutil-pot")),
+    )
     try:
         yield
     finally:
         janitor.cancel()
         watcher.cancel()
+        if POT_SERVER_PROC and POT_SERVER_PROC.poll() is None:
+            POT_SERVER_PROC.terminate()
         shutil.rmtree(WORK_DIR, ignore_errors=True)
 
 
@@ -924,8 +964,10 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "node": bool(shutil.which("node")),
+        "pot_provider": bool(shutil.which("bgutil-pot")),
         "yt_dlp": yt_dlp.version.__version__,
         "cookies": cookies,
+        "youtube_auth_cookies": has_authenticated_youtube_cookies(),
         "boot_commit": BOOT_COMMIT_SHA[:7] if BOOT_COMMIT_SHA else None,
         "active_jobs": sum(1 for j in JOBS.values() if j.status == "processing"),
     }
