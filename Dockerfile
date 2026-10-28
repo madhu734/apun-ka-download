@@ -1,14 +1,13 @@
 FROM python:3.11-slim
 
-# Prevent Python from buffering stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install FFmpeg, curl, and certificates (required for remuxing 1080p and embedding album art)
+# Install FFmpeg, curl, nodejs, and ca-certificates
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg ca-certificates curl && \
+    apt-get install -y --no-install-recommends ffmpeg ca-certificates curl nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
