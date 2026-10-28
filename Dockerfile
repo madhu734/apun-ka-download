@@ -1,3 +1,16 @@
+# Stage 1: Build official Brainicism bgutil-ytdlp-pot-provider server with Node 22
+FROM node:22-slim AS bgutil-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ca-certificates python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil && \
+    cd /opt/bgutil/server && \
+    npm ci && \
+    npx tsc
+
+# Stage 2: Production Python 3.11 + FFmpeg + Node 22 + bgutil POT Server
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -5,25 +18,20 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install FFmpeg, curl, unzip, nodejs, and ca-certificates
+# Copy Node 22 binary and compiled bgutil POT server/plugin from builder stage
+COPY --from=bgutil-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=bgutil-builder /opt/bgutil /opt/bgutil
+
+# Install FFmpeg, curl, and ca-certificates
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg ca-certificates curl unzip nodejs && \
+    apt-get install -y --no-install-recommends ffmpeg ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Rust BotGuard PO Token Server binary (bgutil-pot)
-RUN ARCH="$(uname -m)" && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        BIN_NAME="bgutil-pot-linux-aarch64"; \
-    else \
-        BIN_NAME="bgutil-pot-linux-x86_64"; \
-    fi && \
-    curl -fsSL "https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/latest/download/${BIN_NAME}" -o /usr/local/bin/bgutil-pot && \
-    chmod +x /usr/local/bin/bgutil-pot
-
-# Install Python dependencies and remove buggy script-deno POT provider so HTTP POT provider (127.0.0.1:4416) is used cleanly
+# Install Python dependencies + matching bgutil plugin from /opt/bgutil/plugin
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir /opt/bgutil/plugin && \
     SITE_PKG="$(python3 -c 'import site; print(site.getsitepackages()[0])')" && \
     rm -f "${SITE_PKG}"/yt_dlp_plugins/extractor/getpot_bgutil_script*.py
 
