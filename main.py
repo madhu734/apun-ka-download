@@ -26,8 +26,9 @@ from urllib.parse import urlparse
 
 import httpx
 import yt_dlp
+from yt_dlp.plugins import load_all_plugins
 from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -55,6 +56,7 @@ COOLIFY_API_TOKEN = os.environ.get("COOLIFY_API_TOKEN", "").strip()
 COOLIFY_APP_UUID = os.environ.get("COOLIFY_APP_UUID", "iruropwov7dpshz81pxprsxf").strip()
 TARGET_FQDN = os.environ.get("COOLIFY_DOMAIN", os.environ.get("TARGET_FQDN", "https://download.tmadhu.me")).strip()
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip()
+ADMIN_PIN = os.environ.get("ADMIN_PIN", "").strip()
 
 BOOT_COMMIT_SHA: Optional[str] = None
 LAST_DEPLOY_TRIGGERED_SHA: Optional[str] = None
@@ -158,20 +160,23 @@ def youtube_cookie_rows(content: str) -> list[list[str]]:
     ]
 
 
+def contains_youtube_session(content: str) -> bool:
+    now = time.time()
+    names = {
+        name for _, _, _, _, expiry, name, value in youtube_cookie_rows(content)
+        if value and (expiry in ("", "0") or (expiry.isdecimal() and int(expiry) > now))
+    }
+    return "LOGIN_INFO" in names and bool(
+        names & {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}
+    )
+
+
 def has_authenticated_youtube_cookies() -> bool:
     if not has_valid_cookies():
         return False
     try:
-        content = COOKIE_FILE.read_text(encoding="utf-8", errors="ignore")
-        now = time.time()
-        names = {
-            name for _, _, _, _, expiry, name, value in youtube_cookie_rows(content)
-            if value and (expiry in ("", "0") or (expiry.isdecimal() and int(expiry) > now))
-        }
-        return "LOGIN_INFO" in names and bool(
-            names & {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}
-        )
-    except Exception:
+        return contains_youtube_session(COOKIE_FILE.read_text(encoding="utf-8", errors="ignore"))
+    except OSError:
         return False
 
 
@@ -308,7 +313,6 @@ async def trigger_coolify_redeploy(reason: str = "github_push") -> Dict[str, Any
 async def github_auto_sync_watcher() -> None:
     global BOOT_COMMIT_SHA, LAST_DEPLOY_TRIGGERED_SHA
     await asyncio.sleep(2)
-    await restore_cookies_from_coolify_env()
     BOOT_COMMIT_SHA = await fetch_latest_github_sha()
     log.info("Initialized GitHub Auto-Sync Watcher for %s@%s (SHA: %s)", GITHUB_REPO, GITHUB_BRANCH, BOOT_COMMIT_SHA)
 
@@ -920,7 +924,10 @@ async def lifespan(_: FastAPI):
         Path(COOKIE_FILE).parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
+    await restore_cookies_from_coolify_env()
     start_pot_server()
+    # Load providers before concurrent yt-dlp requests can try to register them.
+    load_all_plugins()
     janitor = asyncio.create_task(cleanup_loop())
     watcher = asyncio.create_task(github_auto_sync_watcher())
     log.info(
@@ -1113,7 +1120,7 @@ async def github_webhook_deploy(
 
 
 # --------------------------------------------------------------------------- #
-# Standalone Admin & Cookies Management (Password-free as per user preference)
+# Admin & Cookie Management
 # --------------------------------------------------------------------------- #
 def _inspect_cookie_stats() -> dict[str, Any]:
     active = has_valid_cookies()
@@ -1157,12 +1164,23 @@ async def admin_page():
     raise HTTPException(404, "Admin page not found.")
 
 
-@app.get("/api/admin/cookies-status")
+async def require_admin(
+    response: Response, x_admin_pin: Optional[str] = Header(default=None)
+) -> None:
+    headers = {"Cache-Control": "no-store"}
+    if len(ADMIN_PIN) < 24:
+        raise HTTPException(503, "Set a strong ADMIN_PIN in Coolify to enable cookie management.", headers=headers)
+    if not hmac.compare_digest((x_admin_pin or "").encode(), ADMIN_PIN.encode()):
+        raise HTTPException(401, "Enter the admin key from Coolify.", headers=headers)
+    response.headers.update(headers)
+
+
+@app.get("/api/admin/cookies-status", dependencies=[Depends(require_admin)])
 async def get_cookies_status() -> dict[str, Any]:
     return _inspect_cookie_stats()
 
 
-@app.get("/api/admin/cookies-content")
+@app.get("/api/admin/cookies-content", dependencies=[Depends(require_admin)])
 async def get_cookies_content() -> dict[str, str]:
     if has_valid_cookies():
         try:
@@ -1174,11 +1192,10 @@ async def get_cookies_content() -> dict[str, str]:
 
 class CookieSaveRequest(BaseModel):
     cookies_content: str = ""
-    pin: Optional[str] = None
     youtube_only: bool = False
 
 
-@app.post("/api/admin/cookies")
+@app.post("/api/admin/cookies", dependencies=[Depends(require_admin)])
 async def save_cookies(req: CookieSaveRequest) -> dict[str, Any]:
     raw_content = (req.cookies_content or "").strip()
     if req.youtube_only:
@@ -1186,8 +1203,10 @@ async def save_cookies(req: CookieSaveRequest) -> dict[str, Any]:
             line for line in normalize_cookies_content(raw_content).splitlines()
             if youtube_cookie_rows(line)
         ]
-        if not incoming:
-            raise HTTPException(400, "The file does not contain YouTube cookies.")
+        if not contains_youtube_session("\n".join(incoming)):
+            raise HTTPException(
+                400, "No signed-in YouTube session was found. Export fresh cookies from a signed-in InPrivate window."
+            )
         existing = COOKIE_FILE.read_text(encoding="utf-8", errors="ignore") if has_valid_cookies() else ""
         remaining = [line for line in existing.splitlines() if not youtube_cookie_rows(line)]
         raw_content = "\n".join(remaining + incoming)
@@ -1214,7 +1233,7 @@ async def save_cookies(req: CookieSaveRequest) -> dict[str, Any]:
         raise HTTPException(500, f"Failed to save cookies: {exc}")
 
 
-@app.delete("/api/admin/cookies")
+@app.delete("/api/admin/cookies", dependencies=[Depends(require_admin)])
 async def delete_cookies() -> dict[str, Any]:
     try:
         if COOKIE_FILE.is_file():

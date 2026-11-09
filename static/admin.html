@@ -312,15 +312,20 @@
         <span>COOKIE MANAGER</span>
       </div>
       <h1>Netscape Cookies.txt</h1>
-      <p>Upload or paste your Netscape format cookies.txt to bypass YouTube sign-in walls, age restrictions, and premium stream limits. Password-free access.</p>
+      <p>Manage the cookies used by the downloader. Enter the ADMIN_PIN from Coolify to use this page.</p>
     </header>
 
     <!-- Status Card -->
     <section class="card">
+      <form id="adminForm" class="status-row">
+        <label for="adminKey">Admin key</label>
+        <input type="password" id="adminKey" class="tool-btn" autocomplete="off" required />
+        <button class="tool-btn" type="submit">Unlock</button>
+      </form>
       <div class="status-row">
         <div class="indicator-box">
           <span id="dot" class="dot-gray"></span>
-          <span id="statusTitle">Checking cookies status...</span>
+          <span id="statusTitle">Enter your admin key</span>
         </div>
         <button id="refreshBtn" class="tool-btn" type="button">🔄 Refresh Status</button>
       </div>
@@ -387,6 +392,9 @@
   <div id="toast">Notification</div>
 
   <script>
+    const adminForm = document.getElementById("adminForm");
+    const adminKey = document.getElementById("adminKey");
+    let pin = "";
     const statusTitle = document.getElementById("statusTitle");
     const dot = document.getElementById("dot");
     const statSize = document.getElementById("statSize");
@@ -425,10 +433,19 @@
       return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    async function adminRequest(path, options = {}) {
+      if (!pin) throw new Error("Enter your admin key and click Unlock.");
+      const headers = new Headers(options.headers);
+      headers.set("X-Admin-Pin", pin);
+      const res = await fetch(path, { ...options, headers, cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Request failed.");
+      return data;
+    }
+
     async function refreshStatus() {
       try {
-        const res = await fetch("/api/admin/cookies-status");
-        const data = await res.json();
+        const data = await adminRequest("/api/admin/cookies-status");
 
         if (data.active) {
           dot.className = "dot-green";
@@ -450,14 +467,13 @@
           platformsList.innerHTML = `<span style="color:#8A94A6; font-style:italic;">None detected</span>`;
         }
       } catch (err) {
-        statusTitle.textContent = "Error fetching status";
+        statusTitle.textContent = err.message;
       }
     }
 
     async function loadExistingCookies() {
       try {
-        const res = await fetch("/api/admin/cookies-content");
-        const data = await res.json();
+        const data = await adminRequest("/api/admin/cookies-content");
         if (data.content) {
           cookieInput.value = data.content;
           showToast("Loaded current active cookies from server!");
@@ -483,14 +499,11 @@
       saveBtn.style.opacity = "0.7";
 
       try {
-        const res = await fetch("/api/admin/cookies", {
+        const data = await adminRequest("/api/admin/cookies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cookies_content: content, youtube_only: youtubeOnly.checked })
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to save");
-
         if (data.active) {
           showToast(`✅ Saved! Active (${formatBytes(data.size_bytes)})`);
         } else {
@@ -508,7 +521,7 @@
     clearBtn.addEventListener("click", async () => {
       if (!confirm("Are you sure you want to delete the active server cookies.txt?")) return;
       try {
-        const res = await fetch("/api/admin/cookies", { method: "DELETE" });
+        await adminRequest("/api/admin/cookies", { method: "DELETE" });
         cookieInput.value = "";
         showToast("🗑️ Server cookies deleted.");
         await refreshStatus();
@@ -558,12 +571,13 @@
       cookieInput.value = "";
       showToast("Editor cleared");
     });
-    refreshBtn.addEventListener("click", () => {
+    refreshBtn.addEventListener("click", refreshStatus);
+    adminForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      pin = adminKey.value.trim();
+      adminKey.value = "";
       refreshStatus();
-      showToast("🔄 Status refreshed");
     });
-
-    refreshStatus();
   </script>
 </body>
 </html>
