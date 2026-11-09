@@ -1,7 +1,7 @@
 """Apun Ka Download - single-container media extractor/downloader.
 
 FastAPI + yt-dlp (in-process) + FFmpeg (remux only for video, no re-encoding).
-Includes direct BotGuard PO Token integration (bgutil-pot) + persistent Netscape/JSON cookies.
+Includes the yt-dlp BotGuard provider and persistent Netscape/JSON cookies.
 """
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-import urllib.request
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -60,7 +59,6 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip()
 BOOT_COMMIT_SHA: Optional[str] = None
 LAST_DEPLOY_TRIGGERED_SHA: Optional[str] = None
 POT_SERVER_PROC: Optional[subprocess.Popen] = None
-CACHED_POT: Dict[str, Any] = {"po_token": None, "visitor_data": None, "ts": 0.0}
 
 PRIVATE_FB_MESSAGE = (
     "This link belongs to a private Facebook group or restricted post. "
@@ -82,58 +80,6 @@ PLATFORM_LABELS = {
 STANDARD_RES = [144, 240, 360, 480, 540, 576, 720, 1080, 1440, 2160, 4320]
 FORMAT_ID_RE = re.compile(r"^[A-Za-z0-9_\-.=:]+(\+[A-Za-z0-9_\-.=:]+)?$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-
-
-# --------------------------------------------------------------------------- #
-# Direct BotGuard PO Token (bgutil-pot) Integration
-# --------------------------------------------------------------------------- #
-def get_botguard_pot() -> tuple[Optional[str], Optional[str]]:
-    """Fetches a real BotGuard Proof-of-Origin Token (po_token) & visitor_data from
-    the local bgutil-pot server (127.0.0.1:4416) or CLI binary, cached for 1 hour."""
-    now = time.time()
-    if CACHED_POT.get("po_token") and (now - CACHED_POT.get("ts", 0.0) < 3600):
-        return CACHED_POT["po_token"], CACHED_POT.get("visitor_data")
-
-    # 1. Try local bgutil-pot HTTP server on 127.0.0.1:4416
-    try:
-        req = urllib.request.Request(
-            "http://127.0.0.1:4416/get_pot",
-            data=b"{}",
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            po_tok = data.get("po_token") or data.get("poToken")
-            vis_data = data.get("content_binding") or data.get("visitor_data") or data.get("visitorData")
-            if po_tok:
-                CACHED_POT.update({"po_token": po_tok, "visitor_data": vis_data, "ts": now})
-                log.info("Generated BotGuard PO Token via HTTP server (len=%d, visitor_data=%s)", len(po_tok), bool(vis_data))
-                return po_tok, vis_data
-    except Exception as exc:
-        log.info("bgutil-pot HTTP /get_pot call note: %s", exc)
-
-    # 2. Fallback to bgutil-pot CLI execution
-    pot_bin = shutil.which("bgutil-pot")
-    if pot_bin:
-        try:
-            proc = subprocess.run([pot_bin], capture_output=True, text=True, timeout=15)
-            out = (proc.stdout or "").strip()
-            if out:
-                try:
-                    data = json.loads(out)
-                    po_tok = data.get("po_token") or data.get("poToken")
-                    vis_data = data.get("content_binding") or data.get("visitor_data") or data.get("visitorData")
-                except Exception:
-                    po_tok, vis_data = out.splitlines()[-1].strip(), None
-                if po_tok and len(po_tok) > 20:
-                    CACHED_POT.update({"po_token": po_tok, "visitor_data": vis_data, "ts": now})
-                    log.info("Generated BotGuard PO Token via CLI (len=%d)", len(po_tok))
-                    return po_tok, vis_data
-        except Exception as exc:
-            log.info("bgutil-pot CLI note: %s", exc)
-
-    return None, None
 
 
 # --------------------------------------------------------------------------- #
@@ -202,13 +148,29 @@ def normalize_cookies_content(raw: str) -> str:
     return "\n".join(out_lines) + "\n"
 
 
+def youtube_cookie_rows(content: str) -> list[list[str]]:
+    rows = [line.removeprefix("#HttpOnly_").split("\t") for line in content.splitlines()]
+    return [
+        row for row in rows
+        if len(row) == 7 and (
+            row[0].lower().lstrip(".") == "youtube.com" or row[0].lower().endswith(".youtube.com")
+        )
+    ]
+
+
 def has_authenticated_youtube_cookies() -> bool:
     if not has_valid_cookies():
         return False
     try:
         content = COOKIE_FILE.read_text(encoding="utf-8", errors="ignore")
-        auth_markers = ("__Secure-1PSID", "__Secure-3PSID", "SAPISID", "LOGIN_INFO", "\tSID\t", "\tHSID\t")
-        return any(m in content for m in auth_markers)
+        now = time.time()
+        names = {
+            name for _, _, _, _, expiry, name, value in youtube_cookie_rows(content)
+            if value and (expiry in ("", "0") or (expiry.isdecimal() and int(expiry) > now))
+        }
+        return "LOGIN_INFO" in names and bool(
+            names & {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}
+        )
     except Exception:
         return False
 
@@ -225,11 +187,19 @@ async def sync_cookies_to_coolify_env(content: str) -> None:
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            await client.patch(
-                f"{base}/applications/{COOLIFY_APP_UUID}/envs/bulk",
+            response = await client.patch(
+                f"{base}/applications/{COOLIFY_APP_UUID}/envs",
                 headers=headers,
-                json={"data": [{"key": "SAVED_COOKIES_B64", "value": b64_val, "is_runtime": True, "is_buildtime": False}]},
+                json={
+                    "key": "SAVED_COOKIES_B64",
+                    "value": b64_val,
+                    "is_runtime": True,
+                    "is_buildtime": False,
+                    "is_preview": False,
+                    "is_literal": True,
+                },
             )
+            response.raise_for_status()
             log.info("Synced cookies.txt to Coolify persistent env (SAVED_COOKIES_B64, %d bytes)", len(content))
     except Exception as exc:
         log.warning("Could not sync cookies to Coolify env: %s", exc)
@@ -251,7 +221,11 @@ async def restore_cookies_from_coolify_env() -> None:
                 res = await client.get(f"{base}/applications/{COOLIFY_APP_UUID}/envs", headers=headers)
                 if res.status_code == 200:
                     for item in res.json():
-                        if item.get("key") == "SAVED_COOKIES_B64" and item.get("real_value"):
+                        if (
+                            item.get("key") == "SAVED_COOKIES_B64"
+                            and item.get("is_preview") is False
+                            and item.get("real_value")
+                        ):
                             b64_val = item["real_value"].strip()
                             break
         except Exception as exc:
@@ -436,30 +410,10 @@ def has_valid_cookies() -> bool:
 
 def base_ydl_opts(
     workdir: Path,
-    use_cookies: Optional[bool] = None,
-    yt_clients: Optional[list[str]] = None,
-    with_pot: bool = True,
+    platform: str,
+    use_cookies: bool = True,
 ) -> dict[str, Any]:
-    cookie_present = has_valid_cookies() if use_cookies is None else (use_cookies and has_valid_cookies())
-
-    yt_args: dict[str, Any] = {}
-    if yt_clients is not None:
-        yt_args["player_client"] = yt_clients
-    elif cookie_present:
-        yt_args["player_client"] = ["web", "web_safari", "web_embedded", "mweb"]
-
-    if with_pot:
-        po_tok, vis_data = get_botguard_pot()
-        if po_tok:
-            yt_args["po_token"] = [
-                f"web.gvs+{po_tok}",
-                f"web.player+{po_tok}",
-                f"mweb.gvs+{po_tok}",
-                f"mweb.player+{po_tok}",
-                f"tv.gvs+{po_tok}",
-            ]
-            if vis_data and not cookie_present:
-                yt_args["visitor_data"] = [vis_data]
+    cookie_present = use_cookies and has_valid_cookies()
 
     opts: dict[str, Any] = {
         "quiet": True,
@@ -475,10 +429,9 @@ def base_ydl_opts(
         "nocheckcertificate": True,
         "noprogress": True,
         "color": "no_color",
-        "extractor_args": {"youtube": yt_args} if yt_args else {},
-        "js_runtimes": {"node": {}},
-        "remote_components": ["ejs:github"],
     }
+    if platform in ("youtube", "ytmusic"):
+        opts["extractor_args"] = {"youtube": {"player_client": ["default", "mweb"]}}
     if cookie_present:
         try:
             raw_cookie = COOKIE_FILE.read_text(encoding="utf-8", errors="ignore")
@@ -690,16 +643,10 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
         last_exc: Optional[Exception] = None
 
         if platform in ("youtube", "ytmusic"):
-            strategies: list[tuple[bool, Optional[list[str]], bool]] = []
-            if has_valid_cookies():
-                strategies.append((True, ["web", "web_safari", "web_embedded", "mweb"], True))
-                strategies.append((True, ["web_embedded", "tv_embedded", "mweb"], False))
-            strategies.append((False, ["web", "mweb", "tv"], True))
-            strategies.append((False, ["visionos", "ios", "tv_embedded", "web_embedded"], False))
-
-            for use_c, clients, use_pot in strategies:
+            strategies = (False, True) if has_authenticated_youtube_cookies() else (False,)
+            for use_cookies in strategies:
                 try:
-                    opts = base_ydl_opts(tmp, use_cookies=use_c, yt_clients=clients, with_pot=use_pot)
+                    opts = base_ydl_opts(tmp, platform, use_cookies=use_cookies)
                     with yt_dlp.YoutubeDL(opts) as ydl:
                         candidate = ydl.extract_info(url, download=False)
                     if candidate and (candidate.get("formats") or candidate.get("entries") or candidate.get("url")):
@@ -707,11 +654,11 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
                         break
                 except Exception as exc:
                     last_exc = exc
-                    log.info("YouTube strategy (cookies=%s, pot=%s, clients=%s) failed: %s", use_c, use_pot, clients, clean_error(exc)[:120])
+                    log.info("YouTube extraction (account cookies=%s) failed: %s", use_cookies, clean_error(exc)[:120])
             if not info and last_exc:
                 raise last_exc
         else:
-            opts = base_ydl_opts(tmp)
+            opts = base_ydl_opts(tmp, platform)
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
@@ -737,11 +684,13 @@ def extract_info_blocking(url: str, platform: str) -> dict[str, Any]:
             raise ApiError(422, "This link is not supported or does not contain downloadable media.")
         if "no video" in low or "there is no video" in low:
             raise ApiError(422, "This post does not contain a downloadable video.")
-        if "sign in" in low or "login" in low or "bot" in low or "cookies" in low:
+        if platform in ("youtube", "ytmusic") and any(
+            marker in low for marker in ("sign in", "login", "cookies")
+        ):
             raise ApiError(
                 422,
-                "YouTube requested a logged-in session for this video. "
-                "Please export fresh YouTube cookies from an Incognito browser window and save them on /admin.",
+                "YouTube rejected the session from this server. If the video requires an account, "
+                "import a fresh YouTube cookies.txt on /admin.",
             )
         raise ApiError(422, f"Could not read this link: {msg[:220]}")
     finally:
@@ -784,11 +733,9 @@ def build_download_opts(
     kind: str,
     platform: str,
     selector: Optional[str],
-    use_cookies: Optional[bool] = None,
-    yt_clients: Optional[list[str]] = None,
-    with_pot: bool = True,
+    use_cookies: bool = True,
 ) -> dict[str, Any]:
-    opts = base_ydl_opts(job.dir, use_cookies=use_cookies, yt_clients=yt_clients, with_pot=with_pot)
+    opts = base_ydl_opts(job.dir, platform, use_cookies=use_cookies)
     opts["outtmpl"] = str(job.dir / "%(title,id).150B.%(ext)s")
     opts["restrictfilenames"] = False
     opts["windowsfilenames"] = True
@@ -867,13 +814,9 @@ def new_downloader(
     kind: str,
     platform: str,
     selector: Optional[str],
-    use_cookies: Optional[bool] = None,
-    yt_clients: Optional[list[str]] = None,
-    with_pot: bool = True,
+    use_cookies: bool = True,
 ) -> yt_dlp.YoutubeDL:
-    ydl = yt_dlp.YoutubeDL(
-        build_download_opts(job, kind, platform, selector, use_cookies=use_cookies, yt_clients=yt_clients, with_pot=with_pot)
-    )
+    ydl = yt_dlp.YoutubeDL(build_download_opts(job, kind, platform, selector, use_cookies=use_cookies))
     if kind in ("m4a", "mp3"):
         ydl.add_post_processor(SquareCoverPP(ydl), when="before_dl")
     return ydl
@@ -898,23 +841,17 @@ def run_download_blocking(job: Job, url: str, kind: str, platform: str, selector
         last_exc: Optional[Exception] = None
 
         if platform in ("youtube", "ytmusic"):
-            strategies: list[tuple[bool, list[str], Optional[str], bool]] = []
-            if has_valid_cookies():
-                strategies.append((True, ["web", "web_safari", "web_embedded", "mweb"], selector, True))
-                strategies.append((True, ["web_embedded", "tv_embedded", "mweb"], selector, False))
-            strategies.append((False, ["web", "mweb", "tv"], selector, True))
-            strategies.append((False, ["visionos", "ios", "tv_embedded", "web_embedded"], None, False))
-
-            for use_c, clients, sel, use_pot in strategies:
+            strategies = (False, True) if has_authenticated_youtube_cookies() else (False,)
+            for use_cookies in strategies:
                 try:
-                    with new_downloader(job, kind, platform, sel, use_cookies=use_c, yt_clients=clients, with_pot=use_pot) as ydl:
+                    with new_downloader(job, kind, platform, selector, use_cookies=use_cookies) as ydl:
                         info = ydl.extract_info(url, download=True)
                     out_check = locate_output(job, info)
                     if out_check:
                         break
                 except Exception as exc:
                     last_exc = exc
-                    log.info("Download strategy (cookies=%s, pot=%s, clients=%s) failed: %s", use_c, use_pot, clients, clean_error(exc)[:100])
+                    log.info("YouTube download (account cookies=%s) failed: %s", use_cookies, clean_error(exc)[:100])
             if not locate_output(job, info) and last_exc:
                 raise last_exc
         else:
@@ -1037,6 +974,7 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "node": bool(shutil.which("node")),
+        "deno": bool(shutil.which("deno")),
         "pot_provider": bool(shutil.which("bgutil-pot")),
         "yt_dlp": yt_dlp.version.__version__,
         "cookies": cookies,
@@ -1237,11 +1175,23 @@ async def get_cookies_content() -> dict[str, str]:
 class CookieSaveRequest(BaseModel):
     cookies_content: str = ""
     pin: Optional[str] = None
+    youtube_only: bool = False
 
 
 @app.post("/api/admin/cookies")
 async def save_cookies(req: CookieSaveRequest) -> dict[str, Any]:
     raw_content = (req.cookies_content or "").strip()
+    if req.youtube_only:
+        incoming = [
+            line for line in normalize_cookies_content(raw_content).splitlines()
+            if youtube_cookie_rows(line)
+        ]
+        if not incoming:
+            raise HTTPException(400, "The file does not contain YouTube cookies.")
+        existing = COOKIE_FILE.read_text(encoding="utf-8", errors="ignore") if has_valid_cookies() else ""
+        remaining = [line for line in existing.splitlines() if not youtube_cookie_rows(line)]
+        raw_content = "\n".join(remaining + incoming)
+
     if not raw_content:
         if COOKIE_FILE.is_file():
             COOKIE_FILE.unlink(missing_ok=True)

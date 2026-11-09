@@ -358,6 +358,7 @@
       <textarea id="cookieInput" class="textarea" placeholder="# Netscape HTTP Cookie File&#10;# Exported from Chrome/Firefox using 'Get cookies.txt LOCALLY'&#10;# Paste tab-separated cookie lines here..."></textarea>
 
       <div class="actions-row">
+        <label><input type="checkbox" id="youtubeOnly"> Replace only YouTube and YouTube Music cookies</label>
         <div class="btn-group">
           <button type="button" id="saveBtn" class="btn-save">
             <span>💾</span>
@@ -376,9 +377,9 @@
       <h3>💡 How to export cookies from your browser:</h3>
       <ol>
         <li>Install the Chrome / Edge extension: <strong>Get cookies.txt LOCALLY</strong> or <strong>EditThisCookie</strong>.</li>
-        <li>Open <code>youtube.com</code> or target platform while logged into your account.</li>
-        <li>Click the extension icon &rarr; click <strong>Export</strong> (or copy the text).</li>
-        <li>Drop or paste the file here and click <strong>Save &amp; Activate Cookies</strong>.</li>
+        <li>For YouTube and YouTube Music, sign in to YouTube in a fresh InPrivate window. In the same tab, open <code>https://www.youtube.com/robots.txt</code>.</li>
+        <li>Export only <code>youtube.com</code> cookies, then close the InPrivate window.</li>
+        <li>Drop or paste the file here, check <strong>Replace only YouTube and YouTube Music cookies</strong>, and click <strong>Save &amp; Activate Cookies</strong>.</li>
       </ol>
     </section>
   </main>
@@ -396,6 +397,7 @@
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("fileInput");
     const saveBtn = document.getElementById("saveBtn");
+    const youtubeOnly = document.getElementById("youtubeOnly");
     const clearBtn = document.getElementById("clearBtn");
     const refreshBtn = document.getElementById("refreshBtn");
     const loadExistingBtn = document.getElementById("loadExistingBtn");
@@ -469,6 +471,10 @@
 
     saveBtn.addEventListener("click", async () => {
       const content = cookieInput.value.trim();
+      if (!content && youtubeOnly.checked) {
+        showToast("Select a YouTube cookies.txt file first.", true);
+        return;
+      }
       if (!content) {
         if (!confirm("Editor is empty. This will clear the active cookies.txt on server. Proceed?")) return;
       }
@@ -480,7 +486,7 @@
         const res = await fetch("/api/admin/cookies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cookies_content: content })
+          body: JSON.stringify({ cookies_content: content, youtube_only: youtubeOnly.checked })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to save");

@@ -5,20 +5,29 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install FFmpeg, curl, unzip, nodejs, and ca-certificates
+COPY --from=denoland/deno:bin-2.9.6 /deno /usr/local/bin/deno
+
+# Install FFmpeg and tools for fetching the PO Token provider
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg ca-certificates curl unzip nodejs && \
+    apt-get install -y --no-install-recommends ffmpeg ca-certificates curl unzip && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Rust BotGuard PO Token Server binary (bgutil-pot)
+# Install the matching Rust BotGuard server and yt-dlp plugin
 RUN ARCH="$(uname -m)" && \
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
         BIN_NAME="bgutil-pot-linux-aarch64"; \
     else \
         BIN_NAME="bgutil-pot-linux-x86_64"; \
     fi && \
-    curl -fsSL "https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/latest/download/${BIN_NAME}" -o /usr/local/bin/bgutil-pot && \
-    chmod +x /usr/local/bin/bgutil-pot
+    RELEASE="https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/download/v0.8.1" && \
+    curl -fsSL "${RELEASE}/${BIN_NAME}" -o /usr/local/bin/bgutil-pot && \
+    chmod +x /usr/local/bin/bgutil-pot && \
+    curl -fsSL "${RELEASE}/bgutil-ytdlp-pot-provider-rs.zip" -o /tmp/bgutil-plugin.zip && \
+    unzip -q /tmp/bgutil-plugin.zip -d /tmp/bgutil-plugin && \
+    PLUGIN_PACKAGE="$(find /tmp/bgutil-plugin -type d -name yt_dlp_plugins -print -quit)" && \
+    test -n "${PLUGIN_PACKAGE}" && \
+    cp -R "${PLUGIN_PACKAGE}" "$(python -c "import sysconfig; print(sysconfig.get_path('purelib'))")/" && \
+    rm -rf /tmp/bgutil-plugin /tmp/bgutil-plugin.zip
 
 # Install Python dependencies
 COPY requirements.txt .

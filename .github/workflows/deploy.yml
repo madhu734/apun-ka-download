@@ -1,42 +1,39 @@
-name: Auto-Deploy to Coolify
-
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
+name: Verify deployed YouTube extraction
+on: workflow_dispatch
+permissions:
+  contents: read
 jobs:
-  trigger-coolify-deploy:
+  smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
-      - name: Notify Apun Ka Download Webhook on Coolify
-        if: github.event_name == 'push'
+      - name: Check public health and media extraction
         run: |
-          echo "Triggering auto-deploy for commit ${{ github.sha }}..."
-          curl -sS -X POST "https://download.tmadhu.me/api/webhook/github" \
-            -H "Content-Type: application/json" \
-            -d "{\"commit_sha\": \"${{ github.sha }}\", \"repo\": \"${{ github.repository }}\"}" || true
-
-      - name: Run Live Smoke Test (Cookies & Random YouTube Link)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "=== 1. Health Check ==="
-          curl -sS https://download.tmadhu.me/api/health
-          echo ""
-          echo "=== 2. Cookies Status ==="
-          curl -sS https://download.tmadhu.me/api/admin/cookies-status
-          echo ""
-          echo "=== 3. Test Save & Normalize Cookie ==="
-          curl -sS -X POST https://download.tmadhu.me/api/admin/cookies \
-            -H "Content-Type: application/json" \
-            -d '{"cookies_content": ".youtube.com\tTRUE\t/\tTRUE\t1893456000\tPREF\tf6=40000000&hl=en"}'
-          echo ""
-          echo "=== 4. Test YouTube Video Analyze (with Cookies Active) ==="
-          curl -sS -X POST https://download.tmadhu.me/api/analyze \
-            -H "Content-Type: application/json" \
-            -d '{"url": "https://www.youtube.com/watch?v=jNQXAC9IVRw", "mode": "video"}'
-          echo ""
-          echo "=== 5. Clear Test Cookie ==="
-          curl -sS -X DELETE https://download.tmadhu.me/api/admin/cookies
-          echo ""
+          python3 - <<'PY'
+          import json, sys, time, urllib.error, urllib.request
+          base = "https://download.tmadhu.me"
+          def call(path, data=None):
+              req = urllib.request.Request(base + path, data=json.dumps(data).encode() if data else None,
+                                           headers={"Content-Type": "application/json"})
+              with urllib.request.urlopen(req, timeout=95) as res:
+                  return json.load(res)
+          health = call("/api/health")
+          print({key: health.get(key) for key in ("status", "deno", "pot_provider", "yt_dlp", "cookies", "youtube_auth_cookies", "boot_commit")}, flush=True)
+          assert health.get("deno"), "New backend is not serving traffic"
+          failed = False
+          links = [
+              ("YouTube", "https://youtu.be/mYwVYXcr-QU", "video"),
+              ("YouTube Music", "https://music.youtube.com/watch?v=dQw4w9WgXcQ", "audio"),
+          ]
+          for name, url, mode in links:
+              try:
+                  media = call("/api/analyze", {"url": url, "mode": mode})
+                  options = media.get("options") or []
+                  print(f"{name}: {len(options)} format options", flush=True)
+                  assert options, f"{name}: no format options"
+              except urllib.error.HTTPError as exc:
+                  detail = json.load(exc).get("detail", "")
+                  print(f"{name}: HTTP {exc.code}, session rejected: {'rejected the session' in str(detail)}", flush=True)
+                  failed = True
+          sys.exit(failed)
+          PY
